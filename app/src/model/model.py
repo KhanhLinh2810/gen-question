@@ -21,7 +21,7 @@ class Model:
 
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-        model_path = f"../resources/{model_name}"  # put dot
+        model_path = f"./resources/{model_name}"  # put dot
         if not os.path.isdir(os.getcwd() + model_path[1:]):
             gdown.download_folder(
                 id=path_id, output=model_path[2:], quiet=True, use_cookies=False)
