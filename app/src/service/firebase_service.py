@@ -75,6 +75,7 @@ class FirebaseService:
                         crct_ans=crct_ans, all_ans=all_ans)
 
         doc_ref = self._db.collection('users').document(request.uid)
+        print(all_ans)
         for idx, question in enumerate(questions):
             q_dict = {
                 'context': english_to_vietnamese(context),
@@ -88,5 +89,16 @@ class FirebaseService:
                     '3': english_to_vietnamese(all_ans[idx * 4 + 3])
                 }
             }
-            print(all_ans)
-            doc_ref.collection(english_to_vietnamese(request.name)).document(str(idx)).set(q_dict)
+            
+            collection_name = english_to_vietnamese(request.name)
+            collection_ref = doc_ref.collection(collection_name)
+
+            # Kiểm tra xem tên collection đã tồn tại chưa
+            if collection_ref.get():
+                # Collection đã tồn tại, cập nhật dữ liệu
+                doc_ref.collection(collection_name).document(str(idx)).update(q_dict)
+                print("Dữ liệu đã được cập nhật trong collection", collection_name)
+            else:
+                # Collection chưa tồn tại, tạo mới
+                doc_ref.collection(collection_name).document(str(idx)).set(q_dict)
+                print("Dữ liệu đã được thêm vào collection", collection_name)
