@@ -54,7 +54,7 @@ class FirebaseService:
         if not isinstance(all_ans, list):
             raise TypeError("'all_ans' must be list of strings")
 
-    def send_results_to_fs(self, request, questions, crct_ans, all_ans):
+    def send_results_to_fs(self, request, questions, crct_ans, all_ans, context):
         """Send generated question to appropiate fs doc.
 
         Args:
@@ -62,6 +62,7 @@ class FirebaseService:
             questions (list[str]): list of generated questions.
             crct_ans (list[str]): list of correct answers.
             all_ans (list[str]): list of all answers squeezed together.
+            context (str): input corpus used to generate questions.
         """
 
         self.__validate(questions=questions,
@@ -70,6 +71,7 @@ class FirebaseService:
         doc_ref = self._db.collection('users').document(request.uid)
         for idx, question in enumerate(questions):
             q_dict = {
+                'context': context,
                 'question': question,
                 'crct_ans': crct_ans[idx],
                 'all_ans': all_ans[idx * 4: 4 + idx * 4]

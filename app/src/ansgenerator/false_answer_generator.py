@@ -187,7 +187,7 @@ class FalseAnswerGenerator:
             for kwx in kws:
                 results = self.__generate_answer(kwx)
                 if results is not None:
-                    crct_ans.append(kwx)
+                    crct_ans.append(kwx.capitalize())
                     random.shuffle(results)
                     all_answers.append(results)
 
