@@ -7,7 +7,13 @@ import firebase_admin
 
 from firebase_admin import firestore
 from firebase_admin import credentials
+from googletrans import Translator
 
+
+def english_to_vietnamese(text):
+    translator = Translator()
+    translated_text = translator.translate(text, src='en', dest='vi')
+    return translated_text.text
 
 class FirebaseService:
     """Handle firestore operations."""
@@ -71,9 +77,16 @@ class FirebaseService:
         doc_ref = self._db.collection('users').document(request.uid)
         for idx, question in enumerate(questions):
             q_dict = {
-                'context': context,
-                'question': question,
-                'crct_ans': crct_ans[idx],
-                'all_ans': all_ans[idx * 4: 4 + idx * 4]
+                'context': english_to_vietnamese(context),
+                'question': english_to_vietnamese(question),
+                'crct_ans': english_to_vietnamese(crct_ans[idx]),
+                # 'all_ans': all_ans[idx * 4: 4 + idx * 4]
+                'all_ans': {
+                    '0': english_to_vietnamese(all_ans[idx * 4]),
+                    '1': english_to_vietnamese(all_ans[idx * 4 + 1]),
+                    '2': english_to_vietnamese(all_ans[idx * 4 + 2]),
+                    '3': english_to_vietnamese(all_ans[idx * 4 + 3])
+                }
             }
-            doc_ref.collection(request.name).document(str(idx)).set(q_dict)
+            print(all_ans)
+            doc_ref.collection(english_to_vietnamese(request.name)).document(str(idx)).set(q_dict)

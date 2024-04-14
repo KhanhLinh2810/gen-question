@@ -15,6 +15,7 @@ from src.model.abstractive_summarizer import AbstractiveSummarizer
 from src.model.question_generator import QuestionGenerator
 from src.model.keyword_extractor import KeywordExtractor
 from src.service.firebase_service import FirebaseService
+from googletrans import Translator
 
 
 # initialize fireabse client
@@ -58,6 +59,9 @@ def process_request(request):
     Args:
         request (ModelInput): request from flutter.
     """
+    request.context = vietnamese_to_english(request.context)
+    request.name = vietnamese_to_english(request.name)
+
     fs.update_generated_status(request, True)
     questions, crct_ans, all_ans = generate_que_n_ans(request.context)
     fs.update_generated_status(request, False)
@@ -71,6 +75,12 @@ class ModelInput(BaseModel):
     context: str
     uid: str
     name: str
+
+#Translator vietnamese<->english
+def vietnamese_to_english(text):
+    translator = Translator()
+    translated_text = translator.translate(text, src='vi', dest='en')
+    return translated_text.text
 
 
 # API
