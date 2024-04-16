@@ -28,6 +28,7 @@ share/python-wheels/
 MANIFEST
 
 # large files
+app/*._s2v_old
 s2v_old
 *.onnx
 
