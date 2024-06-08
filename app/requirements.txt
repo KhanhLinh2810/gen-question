@@ -19,4 +19,4 @@ setuptools>=65.5.1 # not directly required, pinned by Snyk to avoid a vulnerabil
 wheel>=0.38.0 # not directly required, pinned by Snyk to avoid a vulnerability
 
 torchmetrics<0.8
-googletrans==4.0.0rc1
+deep-translator
