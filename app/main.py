@@ -8,6 +8,8 @@ This module handles all API requests.
 # pylint: disable=no-name-in-module
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+import re
 
 from src.inferencehandler import inference_handler
 from src.ansgenerator.false_answer_generator import FalseAnswerGenerator
@@ -15,7 +17,7 @@ from src.model.abstractive_summarizer import AbstractiveSummarizer
 from src.model.question_generator import QuestionGenerator
 from src.model.keyword_extractor import KeywordExtractor
 from src.service.firebase_service import FirebaseService
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 
 
 # initialize fireabse client
@@ -81,15 +83,15 @@ class ModelInput(BaseModel):
 
 #Translator vietnamese<->english
 def vietnamese_to_english(text):
-    translator = Translator()
-    translated_text = translator.translate(text, src='vi', dest='en')
-    return translated_text.text
+    translator = GoogleTranslator(source='vi', target='en')
+    translated_text = translator.translate(text)
+    return translated_text
 
 
 # API
 # req -> context and ans-s,
 # res -> questions
-@ app.post('/get-questions')
+@ app.post('/get-question')
 async def model_inference(request: ModelInput, bg_task: BackgroundTasks):
     """Process user request
 
@@ -123,3 +125,36 @@ async def model_inference(request: ModelInput, bg_task: BackgroundTasks):
         'status': 200,
         'data': results
     }
+
+# API để chia đoạn văn thành các câu và gửi yêu cầu cho API `get-question`
+@ app.post('/get-questions')
+async def get_questions(request: ModelInput, bg_task: BackgroundTasks):
+    """Process user request by splitting the context into sentences 
+    and sending requests to the `get-question` API for each sentence.
+
+    Args:
+        request (ModelInput): request model
+
+    Returns:
+        dict: response with status
+    """
+    # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
+    results = []
+
+    # Tạo biểu thức chính quy để tìm các dấu ngắt câu
+    sentence_delimiters = r'[.!?]'
+
+    # Tách đoạn văn thành các câu
+    sentences = re.split(sentence_delimiters, request.context)
+
+    # Loại bỏ các câu rỗng
+    sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
+
+    # Gửi yêu cầu cho mỗi câu và thu thập kết quả
+    for sentence in sentences:
+        result = process_request(ModelInput(context=sentence, uid=request.uid, name=request.name))
+        results.append(result)
+        # bg_task.add_task(process_request, ModelInput(context=sentence, uid=request.uid, name=request.name))
+
+    # Trả về kết quả
+    return JSONResponse(content={'status': 200, 'data': results})

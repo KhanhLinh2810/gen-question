@@ -7,13 +7,13 @@ import firebase_admin
 
 from firebase_admin import firestore
 from firebase_admin import credentials
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 
 
 def english_to_vietnamese(text):
-    translator = Translator()
-    translated_text = translator.translate(text, src='en', dest='vi')
-    return translated_text.text
+    translator = GoogleTranslator(source='en', target='vi')
+    translated_text = translator.translate(text)
+    return translated_text
 
 class FirebaseService:
     """Handle firestore operations."""
@@ -76,6 +76,7 @@ class FirebaseService:
 
         doc_ref = self._db.collection('users').document(request.uid)
         print(all_ans)
+        results = []
         for idx, question in enumerate(questions):
             q_dict = {
                 'context': english_to_vietnamese(context),
@@ -93,6 +94,7 @@ class FirebaseService:
             collection_name = english_to_vietnamese(request.name)
             collection_ref = doc_ref.collection(collection_name)
 
+            
             # # Kiểm tra xem tên collection đã tồn tại chưa
             # if collection_ref.get():
             #     # Collection đã tồn tại, cập nhật dữ liệu
@@ -103,15 +105,17 @@ class FirebaseService:
             #     doc_ref.collection(collection_name).document(str(idx)).set(q_dict)
             #     print("Dữ liệu đã được thêm vào collection", collection_name)
             
+            
             # # Sử dụng ID tự động của Firestore để tạo tài liệu mới
             # collection_ref.add(q_dict)
             # print("Dữ liệu đã được thêm vào collection", collection_name)
 
+            
             # Lấy số lượng tài liệu hiện có trong collection
             current_documents = collection_ref.get()
             current_count = len(current_documents)
 
-            results = []  # Danh sách để lưu trữ kết quả
+            # results = []  # Danh sách để lưu trữ kết quả
 
             # Sử dụng current_count + idx để tạo ID tài liệu tuần tự
             document_id = str(current_count + idx)
