@@ -93,12 +93,36 @@ class FirebaseService:
             collection_name = english_to_vietnamese(request.name)
             collection_ref = doc_ref.collection(collection_name)
 
-            # Kiểm tra xem tên collection đã tồn tại chưa
-            if collection_ref.get():
-                # Collection đã tồn tại, cập nhật dữ liệu
-                doc_ref.collection(collection_name).document(str(idx)).update(q_dict)
-                print("Dữ liệu đã được cập nhật trong collection", collection_name)
-            else:
-                # Collection chưa tồn tại, tạo mới
-                doc_ref.collection(collection_name).document(str(idx)).set(q_dict)
-                print("Dữ liệu đã được thêm vào collection", collection_name)
+            # # Kiểm tra xem tên collection đã tồn tại chưa
+            # if collection_ref.get():
+            #     # Collection đã tồn tại, cập nhật dữ liệu
+            #     doc_ref.collection(collection_name).document(str(idx)).update(q_dict)
+            #     print("Dữ liệu đã được cập nhật trong collection", collection_name)
+            # else:
+            #     # Collection chưa tồn tại, tạo mới
+            #     doc_ref.collection(collection_name).document(str(idx)).set(q_dict)
+            #     print("Dữ liệu đã được thêm vào collection", collection_name)
+            
+            # # Sử dụng ID tự động của Firestore để tạo tài liệu mới
+            # collection_ref.add(q_dict)
+            # print("Dữ liệu đã được thêm vào collection", collection_name)
+
+            # Lấy số lượng tài liệu hiện có trong collection
+            current_documents = collection_ref.get()
+            current_count = len(current_documents)
+
+            results = []  # Danh sách để lưu trữ kết quả
+
+            # Sử dụng current_count + idx để tạo ID tài liệu tuần tự
+            document_id = str(current_count + idx)
+            collection_ref.document(document_id).set(q_dict)
+            print("Dữ liệu đã được thêm vào collection", collection_name, "với document ID:", document_id)
+
+            # Lưu lại thông tin về collection name, document ID và dữ liệu đã lưu vào danh sách results
+            results.append({
+                'collection_name': collection_name,
+                'document_id': document_id,
+                'data': q_dict
+            })
+        # Trả về danh sách results sau khi hoàn tất quá trình lưu trữ
+        return results

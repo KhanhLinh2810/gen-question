@@ -65,7 +65,10 @@ def process_request(request):
     fs.update_generated_status(request, True)
     questions, crct_ans, all_ans = generate_que_n_ans(request.context)
     fs.update_generated_status(request, False)
-    fs.send_results_to_fs(request, questions, crct_ans, all_ans, request.context)
+    # fs.send_results_to_fs(request, questions, crct_ans, all_ans, request.context)
+    # Sửa ở đây: Trả về kết quả từ hàm send_results_to_fs
+    results = fs.send_results_to_fs(request, questions, crct_ans, all_ans, request.context)
+    return results
 
 
 # body classes for req n' res
@@ -98,5 +101,25 @@ async def model_inference(request: ModelInput, bg_task: BackgroundTasks):
     Returns:
         dict(str: int): response
     """
-    bg_task.add_task(process_request, request)
-    return {'status': 200}
+    # bg_task.add_task(process_request, request)
+
+
+    # # Tạo một dictionary để lưu trữ kết quả
+    # results = []
+
+    # def background_task():
+    #     nonlocal results
+    #     results = process_request(request)
+
+    # # Thêm tác vụ nền để xử lý yêu cầu
+    # bg_task.add_task(background_task)
+
+
+    # Thực hiện xử lý yêu cầu và lưu kết quả vào Firestore
+    # Không dùng background vì để nó chạy trong cùng 1 thread để chờ xử lí xong mới có results
+    results = process_request(request)
+
+    return {
+        'status': 200,
+        'data': results
+    }
