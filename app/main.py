@@ -12,6 +12,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse, FileResponse
 import re
+import xml.etree.ElementTree as ET
 
 from src.inferencehandler import inference_handler
 from src.ansgenerator.false_answer_generator import FalseAnswerGenerator
@@ -93,6 +94,43 @@ def vietnamese_to_english(text):
     translator = GoogleTranslator(source='vi', target='en')
     translated_text = translator.translate(text)
     return translated_text
+
+# Hàm tạo XML format cho Moodle
+def create_moodle_xml(questions):
+    """Create Moodle XML from question list.
+
+    Args:
+        questions (list[dict]): list of questions.
+
+    Returns:
+        str: XML content as string.
+    """
+    quiz = ET.Element('quiz')
+
+    for question in questions:
+        question_el = ET.SubElement(quiz, 'question', type='multichoice')
+        
+        name_el = ET.SubElement(question_el, 'name')
+        text_name_el = ET.SubElement(name_el, 'text')
+        text_name_el.text = question['text']
+
+        questiontext_el = ET.SubElement(question_el, 'questiontext', format='html')
+        text_questiontext_el = ET.SubElement(questiontext_el, 'text')
+        text_questiontext_el.text = f"<![CDATA[{question['text']}]]>"
+
+        # Thêm các câu trả lời
+        for answer in question['choices']:
+            fraction = "100" if answer == question['correct_choice'] else "0"
+            answer_el = ET.SubElement(question_el, 'answer', fraction=fraction)
+            text_answer_el = ET.SubElement(answer_el, 'text')
+            text_answer_el.text = answer
+            feedback_el = ET.SubElement(answer_el, 'feedback')
+            text_feedback_el = ET.SubElement(feedback_el, 'text')
+            text_feedback_el.text = "Correct!" if answer == question['correct_choice'] else "Incorrect."
+
+    # Tạo nội dung XML từ ElementTree
+    xml_str = ET.tostring(quiz, encoding='unicode')
+    return xml_str
 
 
 # API
@@ -198,5 +236,32 @@ async def export_questions(request: ModelExportInput):
 
     with open(file_path, "w", encoding="utf-8") as file:
         file.write(aiken_format_content)
+
+    return FileResponse(file_path, filename=file_name)
+
+@ app.post('/export-questions-moodle')
+async def export_questions_moodle(request: ModelExportInput):
+    """Export questions in Moodle XML format based on the provided topic.
+
+    Args:
+        request (ModelExportInput): request model
+
+    Returns:
+        FileResponse: response with the exported file
+    """
+    try:
+        questions = fs.get_questions_by_uid_and_topic(request.uid, request.name)  # Fetch questions from Firestore by uid and topic
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    moodle_xml_content = create_moodle_xml(questions)
+
+    # Đường dẫn đến thư mục Downloads của người dùng
+    downloads_path = str(Path.home() / "Downloads")
+    file_name = f"{request.name}.xml"
+    file_path = os.path.join(downloads_path, file_name)
+
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(moodle_xml_content)
 
     return FileResponse(file_path, filename=file_name)
