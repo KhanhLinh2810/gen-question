@@ -130,3 +130,49 @@ class FirebaseService:
             })
         # Trả về danh sách results sau khi hoàn tất quá trình lưu trữ
         return results
+    
+    def __validate_export_input(self, uid, name):
+        """Validate export input data
+
+        Args:
+            uid (str): user id.
+            name (str): topic name.
+
+        Raises:
+            ValueError: If any input is invalid.
+        """
+        if not uid or not isinstance(uid, str):
+            raise ValueError("'uid' must be a non-empty string")
+
+        if not name or not isinstance(name, str):
+            raise ValueError("'name' must be a non-empty string")
+
+    def get_questions_by_uid_and_topic(self, uid, topic):
+        """Get questions from Firestore based on user id and topic.
+
+        Args:
+            uid (str): user id.
+            topic (str): topic name.
+
+        Returns:
+            list[dict]: list of questions with their answers.
+        """
+        self.__validate_export_input(uid, topic)  # Validate inputs
+
+        doc_ref = self._db.collection('users').document(uid)
+        collection_ref = doc_ref.collection(topic)  # Không cần dịch topic
+        documents = collection_ref.stream()  # Lấy tất cả các tài liệu trong collection
+        questions = []
+        for doc in documents:
+            data = doc.to_dict()
+            print(data['question'])
+            print([data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']])
+            print(str([data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']].index(data['crct_ans'])))
+            question = {
+                'text': data['question'],
+                'choices': [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']],
+                'correct_choice': data['crct_ans']
+            }
+            questions.append(question)
+        return questions
+    

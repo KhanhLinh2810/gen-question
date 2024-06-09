@@ -6,9 +6,11 @@ This module handles all API requests.
 """
 
 # pylint: disable=no-name-in-module
-from fastapi import FastAPI, BackgroundTasks
+import os
+from pathlib import Path
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import re
 
 from src.inferencehandler import inference_handler
@@ -78,6 +80,11 @@ def process_request(request):
 class ModelInput(BaseModel):
     """General request model structure for flutter incoming req."""
     context: str
+    uid: str
+    name: str
+
+class ModelExportInput(BaseModel):
+    """Request model for exporting questions."""
     uid: str
     name: str
 
@@ -158,3 +165,38 @@ async def get_questions(request: ModelInput, bg_task: BackgroundTasks):
 
     # Trả về kết quả
     return JSONResponse(content={'status': 200, 'data': results})
+
+@ app.post('/export-questions')
+async def export_questions(request: ModelExportInput):
+    """Export questions in Aiken format based on the provided topic.
+
+    Args:
+        request (ModelExportInput): request model
+
+    Returns:
+        FileResponse: response with the exported file
+    """
+    try:
+        questions = fs.get_questions_by_uid_and_topic(request.uid, request.name)  # Fetch questions from Firestore by uid and topic
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    aiken_format_content = ""
+
+    for question in questions:
+        aiken_format_content += f"{question['text']}\n"
+        for idx, answer in enumerate(question['choices']):
+            aiken_format_content += f"{chr(65 + idx)}. {answer}\n"
+        correct_choice_index = question['choices'].index(question['correct_choice'])  # Lấy vị trí của đáp án đúng trong danh sách lựa chọn
+        correct_choice = chr(65 + correct_choice_index)  # Convert số thành ký tự tương ứng
+        aiken_format_content += f"ANSWER: {correct_choice}\n\n"
+
+    # Đường dẫn đến thư mục Downloads của người dùng
+    downloads_path = str(Path.home() / "Downloads")
+    file_name = f"{request.name}.txt"
+    file_path = os.path.join(downloads_path, file_name)
+
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(aiken_format_content)
+
+    return FileResponse(file_path, filename=file_name)
