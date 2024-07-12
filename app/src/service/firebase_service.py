@@ -60,6 +60,43 @@ class FirebaseService:
         if not isinstance(all_ans, list):
             raise TypeError("'all_ans' must be list of strings")
 
+    def check_duplicates(self, request, question, answers):
+        """Kiểm tra câu hỏi và đáp án có trùng lặp trong database không.
+
+        Args:
+            request (ModelInput): yêu cầu từ người dùng.
+            question (str): câu hỏi cần kiểm tra.
+            answers (list[str]): các đáp án cần kiểm tra.
+
+        Returns:
+            dict: thông tin trùng lặp nếu có.
+        """
+        doc_ref = self._db.collection('users').document(request.uid)
+        collection_name = english_to_vietnamese(request.name)
+        collection_ref = doc_ref.collection(collection_name)
+        documents = collection_ref.stream()
+        
+        duplicate_info = {
+            'duplicate_questions': [],
+            'duplicate_answers': []
+        }
+
+        # Lặp qua các tài liệu trong collection
+        for idx, doc in enumerate(documents):
+            data = doc.to_dict()
+
+            # Kiểm tra nếu câu hỏi trùng lặp
+            if data['question'] == question:
+                duplicate_info['duplicate_questions'].append(idx)
+
+            # Kiểm tra các đáp án trùng lặp
+            for answer in answers:
+                if answer in data['all_ans'].values():
+                    duplicate_info['duplicate_answers'].append({'index': idx, 'answer': answer})
+
+        # Trả về thông tin về các câu hỏi và đáp án trùng lặp
+        return duplicate_info
+    
     def send_results_to_fs(self, request, questions, crct_ans, all_ans, context):
         """Send generated question to appropiate fs doc.
 
@@ -111,6 +148,9 @@ class FirebaseService:
             # print("Dữ liệu đã được thêm vào collection", collection_name)
 
             
+            # Kiểm tra trùng lặp
+            duplicate_info = self.check_duplicates(request, q_dict['question'], list(q_dict['all_ans'].values()))
+            
             # Lấy số lượng tài liệu hiện có trong collection
             current_documents = collection_ref.get()
             current_count = len(current_documents)
@@ -126,7 +166,8 @@ class FirebaseService:
             results.append({
                 'collection_name': collection_name,
                 'document_id': document_id,
-                'data': q_dict
+                'data': q_dict,
+                'duplicate_info': duplicate_info
             })
         # Trả về danh sách results sau khi hoàn tất quá trình lưu trữ
         return results

@@ -265,3 +265,30 @@ async def export_questions_moodle(request: ModelExportInput):
         file.write(moodle_xml_content)
 
     return FileResponse(file_path, filename=file_name)
+
+@ app.post('/duplicate-questions-answers')
+async def get_duplicate_questions_answers(request: ModelExportInput):
+    try:
+        # Lấy danh sách các câu hỏi từ Firebase theo uid và chủ đề (name)
+        questions = fs.get_questions_by_uid_and_topic(uid=request.uid, topic=request.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    duplicate_questions = []
+    duplicate_answers = []
+
+    # Kiểm tra các câu hỏi trùng nhau
+    for idx1, q1 in enumerate(questions):
+        for idx2, q2 in enumerate(questions[idx1 + 1:], start=idx1 + 1):
+            if q1['text'] == q2['text']:
+                duplicate_questions.append({'question': q1['text'], 'position1': idx1, 'position2': idx2})
+
+            # Kiểm tra các đáp án trùng nhau
+            for ans1 in q1['choices']:
+                if ans1 in q2['choices']:
+                    duplicate_answers.append({'answer': ans1, 'position1': idx1, 'position2': idx2})
+
+    return {
+        'duplicate_questions': duplicate_questions,
+        'duplicate_answers': duplicate_answers
+    }
