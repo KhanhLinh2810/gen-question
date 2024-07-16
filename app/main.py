@@ -21,6 +21,7 @@ from src.model.question_generator import QuestionGenerator
 from src.model.keyword_extractor import KeywordExtractor
 from src.service.firebase_service import FirebaseService
 from deep_translator import GoogleTranslator
+from datetime import datetime
 
 
 # initialize fireabse client
@@ -88,6 +89,28 @@ class ModelExportInput(BaseModel):
     """Request model for exporting questions."""
     uid: str
     name: str
+
+#son
+class Rating(BaseModel):
+    """Rating questions."""
+    uid: str
+    rate: int
+class ModelRatingInput(BaseModel):
+    """Rating questions."""
+    uid: str
+    name: str
+    question_id: str
+    rating: Rating
+class CommentInput(BaseModel):
+    uid: str
+    comment: str
+ 
+class ModelCommentInput(BaseModel):
+    uid: str
+    name: str
+    question_id: str
+    comment: CommentInput
+
 
 #Translator vietnamese<->english
 def vietnamese_to_english(text):
@@ -292,3 +315,146 @@ async def get_duplicate_questions_answers(request: ModelExportInput):
         'duplicate_questions': duplicate_questions,
         'duplicate_answers': duplicate_answers
     }
+
+@app.post('/rating-questions')
+async def rate_questions(request: ModelRatingInput):
+    try:
+        # Tham chiếu đến tài liệu câu hỏi cụ thể
+        doc_ref = fs._db.collection('users').document(request.uid).collection(request.name).document(request.question_id)
+ 
+        # Lấy dữ liệu hiện tại của tài liệu
+        doc = doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            ratings = data.get('rating', [])
+ 
+            # Kiểm tra xem uid đã tồn tại trong danh sách ratings chưa
+            uid_exists = False
+            for rating in ratings:
+                if rating['uid'] == request.rating.uid:
+                    rating['rate'] = request.rating.rate
+                    uid_exists = True
+                    break
+ 
+            # Nếu uid không tồn tại, thêm mới vào danh sách ratings
+            if not uid_exists:
+                ratings.append({
+                    'uid': request.rating.uid,
+                    'rate': request.rating.rate
+                })
+ 
+            # Cập nhật trường rating trong Firestore
+            doc_ref.update({'rating': ratings})
+ 
+            # Tính toán điểm trung bình
+            average_rating = sum(r['rate'] for r in ratings) / len(ratings) if ratings else 0
+ 
+            # Cập nhật trường average_rating
+            doc_ref.update({'average_rating': average_rating})
+ 
+            return {
+                'status': 200,
+                'data': doc_ref.get().to_dict()  # Trả về dữ liệu đã cập nhật từ Firestore
+            }
+        else:
+            raise ValueError("Question not found")
+ 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+ 
+   
+@app.post('/comment-questions')
+async def comment_questions(request: ModelCommentInput):
+    try:
+        # Tham chiếu đến tài liệu câu hỏi cụ thể
+        doc_ref = fs._db.collection('users').document(request.uid).collection(request.name).document(request.question_id)
+       
+        # Lấy dữ liệu hiện tại của tài liệu
+        doc = doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            comments = data.get('comments', [])
+ 
+            # Thêm bình luận mới vào danh sách bình luận
+            comments.append({
+                'uid': request.comment.uid,
+                'comment': request.comment.comment,
+                'time': datetime.now().isoformat()  # Thêm thời gian hiện tại
+            })
+ 
+            # Cập nhật trường comments trong Firestore
+            doc_ref.update({'comments': comments})
+ 
+            return {
+                'status': 200,
+                'data': doc_ref.get().to_dict()  # Trả về dữ liệu đã cập nhật từ Firestore
+            }
+        else:
+            raise ValueError("Question not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+ 
+@app.get('/search-questions')
+async def search_questions(keyword: str):
+    try:
+        # Tham chiếu đến bộ sưu tập người dùng
+        users_collection = fs._db.collection('users')
+        
+        # Lấy tất cả các tài liệu người dùng
+        users = users_collection.stream()
+
+        matching_questions = []
+        
+        # Duyệt qua tất cả các tài liệu người dùng
+        for user in users:
+            user_id = user.id
+            user_data = user.to_dict()
+            
+            # Duyệt qua tất cả các bộ sưu tập câu hỏi của mỗi người dùng
+            question_collections = fs._db.collection('users').document(user_id).collections()
+            for collection in question_collections:
+                documents = collection.stream()
+                
+                # Lọc các câu hỏi dựa trên tiêu đề
+                for doc in documents:
+                    data = doc.to_dict()
+                    if keyword.lower() in data['question'].lower():  # Tìm kiếm không phân biệt chữ hoa chữ thường
+                        question_data = {
+                            'user_id': user_id,
+                            'collection_id': collection.id,
+                            'id': doc.id,
+                            'text': data['question'],
+                            'choices': [data['all_ans'][str(i)] for i in range(4)],  # Giả sử có 4 lựa chọn
+                            'correct_choice': data['crct_ans']
+                        }
+                        
+                        # Chỉ thêm trường 'rating' nếu có ít nhất một đánh giá
+                        if 'rating' in data and data['rating']:
+                            question_data['rating'] = data['rating']
+                        
+                        matching_questions.append(question_data)
+
+        return {
+            'status': 200,
+            'data': matching_questions
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+ 
+@app.get('/delete-question')
+async def delete_questions(uid: str, name: str, question_id: str):
+    try:
+        # Xóa toàn bộ bộ sưu tập câu hỏi của người dùng
+        fs._db.collection('users').document(uid).collection(name).document(question_id).delete()
+ 
+        return {
+            'status': 200,
+            'message': 'Question have been deleted successfully'
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error")
