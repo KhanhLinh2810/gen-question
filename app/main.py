@@ -7,12 +7,14 @@ This module handles all API requests.
 
 # pylint: disable=no-name-in-module
 import os
+import uuid
 from pathlib import Path
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
+from pydantic import BaseModel, EmailStr, constr
 from fastapi.responses import JSONResponse, FileResponse
 import re
 import xml.etree.ElementTree as ET
+from auth import JWTBearer
 
 from src.inferencehandler import inference_handler
 from src.ansgenerator.false_answer_generator import FalseAnswerGenerator
@@ -21,7 +23,7 @@ from src.model.question_generator import QuestionGenerator
 from src.model.keyword_extractor import KeywordExtractor
 from src.service.firebase_service import FirebaseService
 from deep_translator import GoogleTranslator
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 # initialize fireabse client
@@ -35,6 +37,9 @@ keyword_extractor = KeywordExtractor()
 
 # FastAPI setup
 app = FastAPI()
+
+# Định nghĩa một biến dùng cho xác thực
+auth_scheme = JWTBearer()
 
 
 def generate_que_n_ans(context):
@@ -111,6 +116,15 @@ class ModelCommentInput(BaseModel):
     question_id: str
     comment: CommentInput
 
+class UserCreate(BaseModel):
+    email: EmailStr
+    username: constr(min_length=3, max_length=50)
+    password: constr(min_length=6)
+
+class UserLogin(BaseModel):
+    identifier: str  # Can be either email or username
+    password: str
+
 
 #Translator vietnamese<->english
 def vietnamese_to_english(text):
@@ -160,7 +174,7 @@ def create_moodle_xml(questions):
 # req -> context and ans-s,
 # res -> questions
 @ app.post('/get-question')
-async def model_inference(request: ModelInput, bg_task: BackgroundTasks):
+async def model_inference(request: ModelInput, bg_task: BackgroundTasks, token: str = Depends(auth_scheme)):
     """Process user request
 
     Args:
@@ -196,7 +210,7 @@ async def model_inference(request: ModelInput, bg_task: BackgroundTasks):
 
 # API để chia đoạn văn thành các câu và gửi yêu cầu cho API `get-question`
 @ app.post('/get-questions')
-async def get_questions(request: ModelInput, bg_task: BackgroundTasks):
+async def get_questions(request: ModelInput, bg_task: BackgroundTasks, token: str = Depends(auth_scheme)):
     """Process user request by splitting the context into sentences 
     and sending requests to the `get-question` API for each sentence.
 
@@ -290,7 +304,7 @@ async def export_questions_moodle(request: ModelExportInput):
     return FileResponse(file_path, filename=file_name)
 
 @ app.post('/duplicate-questions-answers')
-async def get_duplicate_questions_answers(request: ModelExportInput):
+async def get_duplicate_questions_answers(request: ModelExportInput, token: str = Depends(auth_scheme)):
     try:
         # Lấy danh sách các câu hỏi từ Firebase theo uid và chủ đề (name)
         questions = fs.get_questions_by_uid_and_topic(uid=request.uid, topic=request.name)
@@ -317,7 +331,7 @@ async def get_duplicate_questions_answers(request: ModelExportInput):
     }
 
 @app.post('/rating-questions')
-async def rate_questions(request: ModelRatingInput):
+async def rate_questions(request: ModelRatingInput, token: str = Depends(auth_scheme)):
     try:
         # Tham chiếu đến tài liệu câu hỏi cụ thể
         doc_ref = fs._db.collection('users').document(request.uid).collection(request.name).document(request.question_id)
@@ -366,7 +380,7 @@ async def rate_questions(request: ModelRatingInput):
  
    
 @app.post('/comment-questions')
-async def comment_questions(request: ModelCommentInput):
+async def comment_questions(request: ModelCommentInput, token: str = Depends(auth_scheme)):
     try:
         # Tham chiếu đến tài liệu câu hỏi cụ thể
         doc_ref = fs._db.collection('users').document(request.uid).collection(request.name).document(request.question_id)
@@ -399,7 +413,7 @@ async def comment_questions(request: ModelCommentInput):
         raise HTTPException(status_code=500, detail="Internal Server Error")
  
 @app.get('/search-questions')
-async def search_questions(keyword: str):
+async def search_questions(keyword: str, token: str = Depends(auth_scheme)):
     try:
         # Tham chiếu đến bộ sưu tập người dùng
         users_collection = fs._db.collection('users')
@@ -447,7 +461,7 @@ async def search_questions(keyword: str):
         raise HTTPException(status_code=500, detail="Internal Server Error")
  
 @app.get('/delete-question')
-async def delete_questions(uid: str, name: str, question_id: str):
+async def delete_questions(uid: str, name: str, question_id: str, token: str = Depends(auth_scheme)):
     try:
         # Xóa toàn bộ bộ sưu tập câu hỏi của người dùng
         fs._db.collection('users').document(uid).collection(name).document(question_id).delete()
@@ -458,3 +472,42 @@ async def delete_questions(uid: str, name: str, question_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+# User registration
+@app.post('/register')
+async def register_user(user: UserCreate):
+    """Register a new user with unique email and username validation.
+
+    Args:
+        user (UserCreate): user registration model
+
+    Returns:
+        JSONResponse: response with status
+    """
+    # Kiểm tra email duy nhất
+    if fs.get_user_by_email(user.email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Kiểm tra username duy nhất
+    if fs.get_user_by_username(user.username):
+        raise HTTPException(status_code=400, detail="Username already taken")
+
+    # Lưu người dùng mới vào Firestore
+    user_data = fs.create_user(user.email, user.username, user.password)
+
+    return JSONResponse(content={'status': 201, 'message': 'User registered successfully', 'user_data': user_data})
+
+# User login
+@app.post('/login')
+async def login_user(user: UserLogin):
+    """Login a user with email/username and password.
+
+    Args:
+        user (UserLogin): user login model
+
+    Returns:
+        JSONResponse: response with token
+    """
+    token, uid = fs.authenticate_user(user.identifier, user.password)
+
+    return JSONResponse(content={'status': 200, 'token': token, 'uid': uid})

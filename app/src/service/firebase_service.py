@@ -8,6 +8,14 @@ import firebase_admin
 from firebase_admin import firestore
 from firebase_admin import credentials
 from deep_translator import GoogleTranslator
+import bcrypt
+import jwt
+import datetime
+import uuid
+
+# Set up logging
+import logging
+logging.basicConfig(level=logging.INFO)
 
 
 def english_to_vietnamese(text):
@@ -216,4 +224,110 @@ class FirebaseService:
             }
             questions.append(question)
         return questions
-    
+
+    def create_user(self, email: str, username: str, password: str):
+        """Create a new user with a unique UID.
+
+        Args:
+            email (str): User's email.
+            username (str): User's username.
+            password (str): User's password.
+
+        Returns:
+            dict: User's information including UID.
+        """
+        users_ref = self._db.collection('users')
+        
+        # Check if email or username already exists
+        email_query = users_ref.where('email', '==', email).get()
+        if email_query:
+            raise ValueError("Email already exists")
+        
+        username_query = users_ref.where('username', '==', username).get()
+        if username_query:
+            raise ValueError("Username already exists")
+        
+        # Hash the password
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        
+        # Create a unique UID
+        uid = str(uuid.uuid4())
+        
+        # Save the user to Firestore
+        user_data = {
+            'uid': uid,
+            'email': email,
+            'username': username,
+            'password': hashed_password.decode('utf-8')
+        }
+        users_ref.document(uid).set(user_data)
+        
+        return user_data
+
+    def authenticate_user(self, identifier, password):
+        """Authenticate a user with email/username and password.
+
+        Args:
+            identifier (str): User's email or username.
+            password (str): User's password.
+
+        Returns:
+            str: JWT token if authentication is successful.
+        """
+        users_ref = self._db.collection('users')
+        
+        # Check if the identifier is an email or username
+        user_query = users_ref.where('email', '==', identifier).get()
+        if not user_query:
+            user_query = users_ref.where('username', '==', identifier).get()
+        
+        if not user_query:
+            raise ValueError("Invalid email/username or password")
+        
+        user_data = user_query[0].to_dict()
+        
+        # Check the password
+        if not bcrypt.checkpw(password.encode('utf-8'), user_data['password'].encode('utf-8')):
+            raise ValueError("Invalid email/username or password")
+        
+        # Generate a JWT token
+        token = jwt.encode({
+            'uid': user_data['uid'],
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+        }, 'your_jwt_secret', algorithm='HS256')
+        
+        return token, user_data['uid']
+
+    def get_user_by_email(self, email):
+        """Retrieve user data by email from Firestore.
+
+        Args:
+            email (str): Email to search for in Firestore.
+
+        Returns:
+            dict: User data if found, None otherwise.
+        """
+        users_ref = self._db.collection('users')
+        query = users_ref.where('email', '==', email).limit(1).get()
+        
+        for user in query:
+            return user.to_dict()
+
+        return None
+
+    def get_user_by_username(self, username):
+        """Retrieve user data by username from Firestore.
+
+        Args:
+            username (str): Username to search for in Firestore.
+
+        Returns:
+            dict: User data if found, None otherwise.
+        """
+        users_ref = self._db.collection('users')
+        query = users_ref.where('username', '==', username).limit(1).get()
+        
+        for user in query:
+            return user.to_dict()
+
+        return None

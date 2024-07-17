@@ -18,5 +18,9 @@ gdown
 setuptools>=65.5.1 # not directly required, pinned by Snyk to avoid a vulnerability
 wheel>=0.38.0 # not directly required, pinned by Snyk to avoid a vulnerability
 
+packaging==21.3
 torchmetrics<0.8
 deep-translator
+bcrypt
+uvicorn
+gunicorn
