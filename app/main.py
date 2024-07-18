@@ -9,7 +9,7 @@ This module handles all API requests.
 import os
 import uuid
 from pathlib import Path
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Header
 from pydantic import BaseModel, EmailStr, constr
 from fastapi.responses import JSONResponse, FileResponse
 import re
@@ -124,6 +124,23 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     identifier: str  # Can be either email or username
     password: str
+
+class UserChangePassword(BaseModel):
+    identifier: str  # Can be either email or username
+    password: str
+    new_password: str
+
+class User(BaseModel):
+    uid: str
+    email: str
+    username: str
+
+def get_current_user(token: str = Header(...)):
+    try:
+        user_data = fs.get_user_by_token(token)
+        return User(**user_data)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
 
 
 #Translator vietnamese<->english
@@ -375,8 +392,6 @@ async def rate_questions(request: ModelRatingInput, token: str = Depends(auth_sc
  
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error")
  
    
 @app.post('/comment-questions')
@@ -409,8 +424,6 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(aut
             raise ValueError("Question not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error")
  
 @app.get('/search-questions')
 async def search_questions(keyword: str, token: str = Depends(auth_scheme)):
@@ -508,6 +521,29 @@ async def login_user(user: UserLogin):
     Returns:
         JSONResponse: response with token
     """
-    token, uid = fs.authenticate_user(user.identifier, user.password)
+    try:
+        token, uid = fs.authenticate_user(user.identifier, user.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return JSONResponse(content={'status': 200, 'token': token, 'uid': uid})
+
+@app.post('/change-password')
+async def change_password(user: UserChangePassword):
+    """Change password for a user.
+
+    Args:
+        user (UserChangePassword): user change password model
+
+    Returns:
+        JSONResponse: response with status
+    """
+    try:
+        response = fs.change_password_func(user.identifier, user.password, user.new_password)
+        return JSONResponse(content={'status': 200, 'message': response['message']})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+@app.get('/user-info', response_model=User)
+async def get_user_info(current_user: User = Depends(get_current_user)):
+    return current_user
