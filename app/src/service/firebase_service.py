@@ -380,3 +380,99 @@ class FirebaseService:
             raise ValueError("Token has expired")
         except jwt.InvalidTokenError:
             raise ValueError("Invalid token")
+
+    def get_all_topics_and_questions_by_uid(self, uid):
+        """Get all topics and their questions based on user id.
+ 
+        Args:
+            uid (str): user id.
+ 
+        Returns:
+            dict: Dictionary with topics as keys and lists of questions as values.
+        """
+        user_ref = self._db.collection('users').document(uid)
+        collections = user_ref.collections()
+        all_data = {}
+ 
+        for collection in collections:
+            topic = collection.id
+            documents = collection.stream()
+            questions = []
+            for doc in documents:
+                data = doc.to_dict()
+                question = {
+                    'text': data['question'],
+                    'choices': [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']],
+                    'correct_choice': data['crct_ans']
+                }
+                questions.append(question)
+            all_data[topic] = questions
+       
+        return all_data
+    def delete_topic_by_uid(self, uid, topic):
+        """Delete a topic from Firestore based on user id and topic.
+ 
+        Args:
+            uid (str): user id.
+            topic (str): topic name.
+ 
+        Returns:
+            bool: True if deletion is successful, False otherwise.
+        """
+        try:
+            doc_ref = self._db.collection('users').document(uid)
+            collection_ref = doc_ref.collection(topic)
+ 
+            # Xóa tất cả các tài liệu trong collection trước
+            docs = collection_ref.stream()
+            for doc in docs:
+                doc.reference.delete()
+ 
+            # Sau đó xóa collection (topic)
+            collection_ref = doc_ref.collection(topic).document()
+            collection_ref.delete()
+ 
+            return True
+        except Exception as e:
+            print(f"Error deleting topic: {e}")
+            return False
+   
+    def delete_question_by_uid_and_topic(self, uid, topic, question_id):
+        """Delete a question from Firestore based on user id, topic, and question id.
+ 
+        Args:
+            uid (str): user id.
+            topic (str): topic name.
+            question_id (str): question document id.
+ 
+        Returns:
+            bool: True if deletion is successful, False otherwise.
+        """
+        try:
+            doc_ref = self._db.collection('users').document(uid)
+            collection_ref = doc_ref.collection(topic)
+ 
+            # Xóa tài liệu cụ thể trong collection
+            collection_ref.document(question_id).delete()
+ 
+            return True
+        except Exception as e:
+            print(f"Error deleting question: {e}")
+            return False
+       
+    def delete_user(self, uid):
+        """Delete a user from Firestore based on user id.
+ 
+        Args:
+            uid (str): user id.
+ 
+        Returns:
+            bool: True if deletion is successful, False otherwise.
+        """
+        try:
+            user_ref = self._db.collection('users').document(uid)
+            user_ref.delete()
+            return True
+        except Exception as e:
+            print(f"Error deleting user: {e}")
+            return False

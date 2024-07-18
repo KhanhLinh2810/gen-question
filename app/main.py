@@ -547,3 +547,64 @@ async def change_password(user: UserChangePassword):
 @app.get('/user-info', response_model=User)
 async def get_user_info(current_user: User = Depends(get_current_user)):
     return current_user
+
+@app.get('/user-all-topics-questions')
+async def get_all_topics_and_questions(token: str = Depends(auth_scheme)):
+    try:
+        user_data = fs.get_user_by_token(token)
+        uid = user_data['uid']
+        
+        all_topics_and_questions = fs.get_all_topics_and_questions_by_uid(uid)
+        
+        return JSONResponse(content={'status': 200, 'data': all_topics_and_questions})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete('/delete-user-topic')
+async def delete_topic(topic_delete: str, token: str = Depends(auth_scheme)):
+    try:
+        user_data = fs.get_user_by_token(token)
+        uid = user_data['uid']
+        
+        success = fs.delete_topic_by_uid(uid, topic_delete)
+        
+        if success:
+            return JSONResponse(content={'status': 200, 'message': 'Topic deleted successfully'})
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete topic")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete('/delete-user-question')
+async def delete_question(topic: str, question_id_delete: str, token: str = Depends(auth_scheme)):
+    try:
+        # Lấy thông tin người dùng từ token
+        user_data = fs.get_user_by_token(token)
+        uid = user_data['uid']
+        
+        # Xóa câu hỏi của người dùng
+        success = fs.delete_question_by_uid_and_topic(uid, topic, question_id_delete)
+        
+        if success:
+            return JSONResponse(content={'status': 200, 'message': 'Question deleted successfully'})
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete question")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete('/delete-user')
+async def delete_user(token: str = Depends(auth_scheme)):
+    try:
+        # Lấy thông tin người dùng từ token
+        user_data = fs.get_user_by_token(token)
+        uid = user_data['uid']
+        
+        # Xóa người dùng
+        success = fs.delete_user(uid)
+        
+        if success:
+            return JSONResponse(content={'status': 200, 'message': 'User deleted successfully'})
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete user")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
