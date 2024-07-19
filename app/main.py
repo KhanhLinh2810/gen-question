@@ -87,7 +87,7 @@ def process_request(request):
 # pylint: disable=too-few-public-methods
 class ModelInput(BaseModel):
     """General request model structure for flutter incoming req."""
-    uid: Optional[str] = None
+    # uid: Optional[str] = None
     context: str
     name: str
 
@@ -265,8 +265,9 @@ async def export_questions(request: ModelExportInput, token: str = Depends(auth_
         FileResponse: response with the exported file
     """
     try:
-        user_data = fs.get_user_by_token(token)
-        request.uid = user_data['uid']
+        if not request.uid:
+            user_data = fs.get_user_by_token(token)
+            request.uid = user_data['uid']
         questions = fs.get_questions_by_uid_and_topic(request.uid, request.name)  # Fetch questions from Firestore by uid and topic
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -302,8 +303,9 @@ async def export_questions_moodle(request: ModelExportInput, token: str = Depend
         FileResponse: response with the exported file
     """
     try:
-        user_data = fs.get_user_by_token(token)
-        request.uid = user_data['uid']
+        if not request.uid:
+            user_data = fs.get_user_by_token(token)
+            request.uid = user_data['uid']
         questions = fs.get_questions_by_uid_and_topic(request.uid, request.name)  # Fetch questions from Firestore by uid and topic
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -323,8 +325,9 @@ async def export_questions_moodle(request: ModelExportInput, token: str = Depend
 @ app.post('/duplicate-questions-answers')
 async def get_duplicate_questions_answers(request: ModelExportInput, token: str = Depends(auth_scheme)):
     try:
-        user_data = fs.get_user_by_token(token)
-        request.uid = user_data['uid']
+        if not request.uid:
+            user_data = fs.get_user_by_token(token)
+            request.uid = user_data['uid']
         # Lấy danh sách các câu hỏi từ Firebase theo uid và chủ đề (name)
         questions = fs.get_questions_by_uid_and_topic(uid=request.uid, topic=request.name)
     except ValueError as e:

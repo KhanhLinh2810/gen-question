@@ -336,7 +336,7 @@ class FirebaseService:
         """
             Change password of a user in Firestore.
             Args:
-                uid (str): User's uid.
+                identifier (str): User's email or username.
                 current_password (str): User's current password.
                 new_password (str): User's new password.
             Returns:
@@ -412,22 +412,25 @@ class FirebaseService:
         Returns:
             bool: True if deletion is successful, False otherwise.
         """
-        try:
-            doc_ref = self._db.collection('users').document(uid)
-            collection_ref = doc_ref.collection(topic)
+        
+        doc_ref = self._db.collection('users').document(uid)
+        collection_ref = doc_ref.collection(topic)
  
-            # Xóa tất cả các tài liệu trong collection trước
-            docs = collection_ref.stream()
-            for doc in docs:
+        # Kiểm tra xem collection có tồn tại hay không
+        docs = collection_ref.stream()
+        docs_list = list(docs)  # Chuyển iterator thành danh sách để kiểm tra độ dài
+
+        if docs_list:
+            # Nếu có tài liệu trong collection, tiến hành xóa chúng
+                                        
+            for doc in docs_list:
                 doc.reference.delete()
- 
-            # Sau đó xóa collection (topic)
-            collection_ref = doc_ref.collection(topic).document()
-            collection_ref.delete()
- 
+            print(f"Collection {topic} has been deleted.")
+
             return True
-        except Exception as e:
-            print(f"Error deleting topic: {e}")
+        else:
+            # Nếu không có tài liệu nào, collection không tồn tại hoặc đã rỗng
+            print(f"Collection {topic} does not exist or is already empty.")
             return False
    
     def delete_question_by_uid_and_topic(self, uid, topic, question_id):
@@ -441,17 +444,31 @@ class FirebaseService:
         Returns:
             bool: True if deletion is successful, False otherwise.
         """
-        try:
-            doc_ref = self._db.collection('users').document(uid)
-            collection_ref = doc_ref.collection(topic)
- 
-            # Xóa tài liệu cụ thể trong collection
-            collection_ref.document(question_id).delete()
- 
-            return True
-        except Exception as e:
-            print(f"Error deleting question: {e}")
+        # Truy cập collection của topic
+        collection_ref = self._db.collection('users').document(uid).collection(topic)
+        
+        # Kiểm tra xem collection có tồn tại hay không
+        docs = collection_ref.stream()
+        docs_list = list(docs)  # Chuyển iterator thành danh sách để kiểm tra độ dài
+
+        if not docs_list:
+            print(f"Topic {topic} does not exist or is already empty.")
+                                                  
             return False
+
+        # Truy cập tài liệu cụ thể trong collection
+        doc_ref = collection_ref.document(question_id)
+
+        # Kiểm tra xem question_id có tồn tại hay không
+        if not doc_ref.get().exists:
+            print(f"Question {question_id} does not exist in topic {topic}.")
+            return False
+
+        # Xóa tài liệu cụ thể trong collection
+        doc_ref.delete()
+
+        print(f"Question {question_id} in topic {topic} has been deleted.")
+        return True
        
     def delete_user(self, uid):
         """Delete a user from Firestore based on user id.
