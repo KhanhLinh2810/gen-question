@@ -469,3 +469,21 @@ class FirebaseService:
         except Exception as e:
             print(f"Error deleting user: {e}")
             return False
+
+    def change_user_info(self, uid, new_email, new_username):
+        """Change user information in Firestore based on user id.
+            Args:
+                uid (str): user id.
+                new_email (str): new email.
+                new_username (str):
+            Returns:
+                bool: True if change is successful, False otherwise.
+        """
+        try:
+            user_ref = self._db.collection('users').document(uid)
+            user_ref.update({'email': new_email,
+                             'username': new_username})
+            return True
+        except Exception as e:
+            print(f"Error changing user info: {e}")
+            return False

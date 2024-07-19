@@ -99,12 +99,12 @@ class ModelExportInput(BaseModel):
 #son
 class ModelRatingInput(BaseModel):
     """Rating questions."""
-    uid: str
+    identifier: str
     name: str
     question_id: str
     rate: int
 class ModelCommentInput(BaseModel):
-    uid: str
+    identifier: str
     name: str
     question_id: str
     comment: str
@@ -353,7 +353,16 @@ async def get_duplicate_questions_answers(request: ModelExportInput, token: str 
 async def rate_questions(request: ModelRatingInput, token: str = Depends(auth_scheme)):
     try:
         # Tham chiếu đến tài liệu câu hỏi cụ thể
-        doc_ref = fs._db.collection('users').document(request.uid).collection(request.name).document(request.question_id)
+        users_ref = fs._db.collection('users')
+        user_query = users_ref.where('email', '==', request.identifier).get()
+        if not user_query:
+            user_query = users_ref.where('username', '==', request.identifier).get()
+        
+        if not user_query:
+            raise ValueError("Invalid email/username or password")
+        
+        user = user_query[0].to_dict()
+        doc_ref = fs._db.collection('users').document(user['uid']).collection(request.name).document(request.question_id)
         user_data = fs.get_user_by_token(token)
         # Lấy dữ liệu hiện tại của tài liệu
         doc = doc_ref.get()
@@ -400,7 +409,16 @@ async def rate_questions(request: ModelRatingInput, token: str = Depends(auth_sc
 async def comment_questions(request: ModelCommentInput, token: str = Depends(auth_scheme)):
     try:
         # Tham chiếu đến tài liệu câu hỏi cụ thể
-        doc_ref = fs._db.collection('users').document(request.uid).collection(request.name).document(request.question_id)
+        users_ref = fs._db.collection('users')
+        user_query = users_ref.where('email', '==', request.identifier).get()
+        if not user_query:
+            user_query = users_ref.where('username', '==', request.identifier).get()
+        
+        if not user_query:
+            raise ValueError("Invalid email/username or password")
+        
+        user = user_query[0].to_dict()
+        doc_ref = fs._db.collection('users').document(user['uid']).collection(request.name).document(request.question_id)
         user_data = fs.get_user_by_token(token)
         # Lấy dữ liệu hiện tại của tài liệu
         doc = doc_ref.get()
@@ -636,5 +654,14 @@ async def get_other_user_all_topics_and_questions(identifier: str, token: str = 
         all_topics_and_questions = fs.get_all_topics_and_questions_by_uid(uid)
         
         return JSONResponse(content={'status': 200, 'data': all_topics_and_questions})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post('/change-user-info')
+async def change_user_info(user: User, token: str = Depends(auth_scheme)):
+    try:
+        user_data = fs.get_user_by_token(token)
+        fs.change_user_info(user_data['uid'], user.email, user.username)
+        return JSONResponse(content={'status': 200, 'message': f'User {user.username} info changed successfully'})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
