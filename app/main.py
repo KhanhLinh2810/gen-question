@@ -24,6 +24,7 @@ from src.model.keyword_extractor import KeywordExtractor
 from src.service.firebase_service import FirebaseService
 from deep_translator import GoogleTranslator
 from datetime import datetime, timedelta
+from typing import Optional
 
 
 # initialize fireabse client
@@ -86,35 +87,27 @@ def process_request(request):
 # pylint: disable=too-few-public-methods
 class ModelInput(BaseModel):
     """General request model structure for flutter incoming req."""
+    uid: Optional[str] = None
     context: str
-    uid: str
     name: str
 
 class ModelExportInput(BaseModel):
     """Request model for exporting questions."""
-    uid: str
+    uid: Optional[str] = None
     name: str
 
 #son
-class Rating(BaseModel):
-    """Rating questions."""
-    uid: str
-    rate: int
 class ModelRatingInput(BaseModel):
     """Rating questions."""
     uid: str
     name: str
     question_id: str
-    rating: Rating
-class CommentInput(BaseModel):
-    uid: str
-    comment: str
- 
+    rate: int
 class ModelCommentInput(BaseModel):
     uid: str
     name: str
     question_id: str
-    comment: CommentInput
+    comment: str
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -126,7 +119,6 @@ class UserLogin(BaseModel):
     password: str
 
 class UserChangePassword(BaseModel):
-    identifier: str  # Can be either email or username
     password: str
     new_password: str
 
@@ -218,6 +210,8 @@ async def model_inference(request: ModelInput, bg_task: BackgroundTasks, token: 
 
     # Thực hiện xử lý yêu cầu và lưu kết quả vào Firestore
     # Không dùng background vì để nó chạy trong cùng 1 thread để chờ xử lí xong mới có results
+    user_data = fs.get_user_by_token(token)
+    request.uid = user_data['uid']
     results = process_request(request)
 
     return {
@@ -249,6 +243,8 @@ async def get_questions(request: ModelInput, bg_task: BackgroundTasks, token: st
     # Loại bỏ các câu rỗng
     sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
 
+    user_data = fs.get_user_by_token(token)
+    request.uid = user_data['uid']
     # Gửi yêu cầu cho mỗi câu và thu thập kết quả
     for sentence in sentences:
         result = process_request(ModelInput(context=sentence, uid=request.uid, name=request.name))
@@ -259,7 +255,7 @@ async def get_questions(request: ModelInput, bg_task: BackgroundTasks, token: st
     return JSONResponse(content={'status': 200, 'data': results})
 
 @ app.post('/export-questions')
-async def export_questions(request: ModelExportInput):
+async def export_questions(request: ModelExportInput, token: str = Depends(auth_scheme)):
     """Export questions in Aiken format based on the provided topic.
 
     Args:
@@ -269,6 +265,8 @@ async def export_questions(request: ModelExportInput):
         FileResponse: response with the exported file
     """
     try:
+        user_data = fs.get_user_by_token(token)
+        request.uid = user_data['uid']
         questions = fs.get_questions_by_uid_and_topic(request.uid, request.name)  # Fetch questions from Firestore by uid and topic
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -294,7 +292,7 @@ async def export_questions(request: ModelExportInput):
     return FileResponse(file_path, filename=file_name)
 
 @ app.post('/export-questions-moodle')
-async def export_questions_moodle(request: ModelExportInput):
+async def export_questions_moodle(request: ModelExportInput, token: str = Depends(auth_scheme)):
     """Export questions in Moodle XML format based on the provided topic.
 
     Args:
@@ -304,6 +302,8 @@ async def export_questions_moodle(request: ModelExportInput):
         FileResponse: response with the exported file
     """
     try:
+        user_data = fs.get_user_by_token(token)
+        request.uid = user_data['uid']
         questions = fs.get_questions_by_uid_and_topic(request.uid, request.name)  # Fetch questions from Firestore by uid and topic
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -323,6 +323,8 @@ async def export_questions_moodle(request: ModelExportInput):
 @ app.post('/duplicate-questions-answers')
 async def get_duplicate_questions_answers(request: ModelExportInput, token: str = Depends(auth_scheme)):
     try:
+        user_data = fs.get_user_by_token(token)
+        request.uid = user_data['uid']
         # Lấy danh sách các câu hỏi từ Firebase theo uid và chủ đề (name)
         questions = fs.get_questions_by_uid_and_topic(uid=request.uid, topic=request.name)
     except ValueError as e:
@@ -352,7 +354,7 @@ async def rate_questions(request: ModelRatingInput, token: str = Depends(auth_sc
     try:
         # Tham chiếu đến tài liệu câu hỏi cụ thể
         doc_ref = fs._db.collection('users').document(request.uid).collection(request.name).document(request.question_id)
- 
+        user_data = fs.get_user_by_token(token)
         # Lấy dữ liệu hiện tại của tài liệu
         doc = doc_ref.get()
         if doc.exists:
@@ -362,16 +364,16 @@ async def rate_questions(request: ModelRatingInput, token: str = Depends(auth_sc
             # Kiểm tra xem uid đã tồn tại trong danh sách ratings chưa
             uid_exists = False
             for rating in ratings:
-                if rating['uid'] == request.rating.uid:
-                    rating['rate'] = request.rating.rate
+                if rating['uid'] == user_data['uid']:
+                    rating['rate'] = request.rate
                     uid_exists = True
                     break
  
             # Nếu uid không tồn tại, thêm mới vào danh sách ratings
             if not uid_exists:
                 ratings.append({
-                    'uid': request.rating.uid,
-                    'rate': request.rating.rate
+                    'uid': user_data['uid'],
+                    'rate': request.rate
                 })
  
             # Cập nhật trường rating trong Firestore
@@ -399,7 +401,7 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(aut
     try:
         # Tham chiếu đến tài liệu câu hỏi cụ thể
         doc_ref = fs._db.collection('users').document(request.uid).collection(request.name).document(request.question_id)
-       
+        user_data = fs.get_user_by_token(token)
         # Lấy dữ liệu hiện tại của tài liệu
         doc = doc_ref.get()
         if doc.exists:
@@ -408,8 +410,8 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(aut
  
             # Thêm bình luận mới vào danh sách bình luận
             comments.append({
-                'uid': request.comment.uid,
-                'comment': request.comment.comment,
+                'uid': user_data['uid'],
+                'comment': request.comment,
                 'time': datetime.now().isoformat()  # Thêm thời gian hiện tại
             })
  
@@ -472,19 +474,6 @@ async def search_questions(keyword: str, token: str = Depends(auth_scheme)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error")
- 
-@app.get('/delete-question')
-async def delete_questions(uid: str, name: str, question_id: str, token: str = Depends(auth_scheme)):
-    try:
-        # Xóa toàn bộ bộ sưu tập câu hỏi của người dùng
-        fs._db.collection('users').document(uid).collection(name).document(question_id).delete()
- 
-        return {
-            'status': 200,
-            'message': 'Question have been deleted successfully'
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # User registration
 @app.post('/register')
@@ -529,7 +518,7 @@ async def login_user(user: UserLogin):
     return JSONResponse(content={'status': 200, 'token': token, 'uid': uid})
 
 @app.post('/change-password')
-async def change_password(user: UserChangePassword):
+async def change_password(user: UserChangePassword, token: str = Depends(auth_scheme)):
     """Change password for a user.
 
     Args:
@@ -539,14 +528,20 @@ async def change_password(user: UserChangePassword):
         JSONResponse: response with status
     """
     try:
-        response = fs.change_password_func(user.identifier, user.password, user.new_password)
+        user_data = fs.get_user_by_token(token)
+
+        response = fs.change_password_func(user_data['uid'], user.password, user.new_password)
         return JSONResponse(content={'status': 200, 'message': response['message']})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     
 @app.get('/user-info', response_model=User)
-async def get_user_info(current_user: User = Depends(get_current_user)):
-    return current_user
+async def get_user_info(token: str = Depends(auth_scheme)):
+    try:
+        user_data = fs.get_user_by_token(token)
+        return JSONResponse(content={'status': 200, 'data': user_data})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get('/user-all-topics-questions')
 async def get_all_topics_and_questions(token: str = Depends(auth_scheme)):
@@ -606,5 +601,40 @@ async def delete_user(token: str = Depends(auth_scheme)):
             return JSONResponse(content={'status': 200, 'message': 'User deleted successfully'})
         else:
             raise HTTPException(status_code=500, detail="Failed to delete user")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get('/other-user-info')    
+async def get_other_user_info(identifier: str , token: str = Depends(auth_scheme)):
+    try:
+        users_ref = fs._db.collection('users')
+        user_query = users_ref.where('email', '==', identifier).limit(1).get()
+        if not user_query:
+            user_query = users_ref.where('username', '==', identifier).limit(1).get()
+       
+        if not user_query:
+            raise ValueError("Invalid email/username")
+        user_data = user_query[0].to_dict()
+        return JSONResponse(content={'status': 200, 'data': user_data})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get('/other-user-all-topics-questions')
+async def get_other_user_all_topics_and_questions(identifier: str, token: str = Depends(auth_scheme)):
+    try:
+        users_ref = fs._db.collection('users')
+        user_query = users_ref.where('email', '==', identifier).limit(1).get()
+        if not user_query:
+            user_query = users_ref.where('username', '==', identifier).limit(1).get()
+       
+        if not user_query:
+            raise ValueError("Invalid email/username")
+ 
+        user_data = user_query[0].to_dict()
+        uid = user_data['uid']
+        
+        all_topics_and_questions = fs.get_all_topics_and_questions_by_uid(uid)
+        
+        return JSONResponse(content={'status': 200, 'data': all_topics_and_questions})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

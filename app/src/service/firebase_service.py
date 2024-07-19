@@ -332,25 +332,18 @@ class FirebaseService:
 
         return None
 
-    def change_password_func(self, identifier: str, current_password: str, new_password: str):
+    def change_password_func(self, uid: str, current_password: str, new_password: str):
         """
             Change password of a user in Firestore.
             Args:
-                identifier (str): User's email or username.
+                uid (str): User's uid.
                 current_password (str): User's current password.
                 new_password (str): User's new password.
             Returns:
                 dict: Success message if password change is successful.
         """
-        users_ref = self._db.collection('users')
-        user_query = users_ref.where('email', '==', identifier).limit(1).get()
-        if not user_query:
-            user_query = users_ref.where('username', '==', identifier).limit(1).get()
-       
-        if not user_query:
-            raise ValueError("Invalid email/username")
- 
-        user_data = user_query[0].to_dict()
+        users_ref = self._db.collection('users').document(uid)
+        user_data = users_ref.get().to_dict()
        
         # Kiểm tra mật khẩu hiện tại
         if not bcrypt.checkpw(current_password.encode('utf-8'), user_data['password'].encode('utf-8')):
@@ -360,7 +353,7 @@ class FirebaseService:
         new_hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
        
         # Cập nhật mật khẩu mới trong Firestore
-        users_ref.document(user_data['uid']).update({'password': new_hashed_password})
+        users_ref.update({'password': new_hashed_password})
        
         return {'message': 'Password changed successfully'}
  
