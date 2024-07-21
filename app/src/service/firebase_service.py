@@ -210,7 +210,14 @@ class FirebaseService:
 
         doc_ref = self._db.collection('users').document(uid)
         collection_ref = doc_ref.collection(topic)  # Không cần dịch topic
+
+        # Kiểm tra xem collection có tồn tại hay không
         documents = collection_ref.stream()  # Lấy tất cả các tài liệu trong collection
+        documents_list = list(documents)  # Chuyển stream thành danh sách để kiểm tra
+
+        if not documents_list:
+            raise ValueError(f"Topic '{topic}' does not exist for user '{uid}'.")
+        
         questions = []
         for doc in documents:
             data = doc.to_dict()
