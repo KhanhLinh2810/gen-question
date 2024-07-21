@@ -3,11 +3,13 @@
 @Author: Karthick T. Sharma
 """
 
+import os
 import firebase_admin
 
 from firebase_admin import firestore
 from firebase_admin import credentials
 from deep_translator import GoogleTranslator
+from google.cloud import storage
 import bcrypt
 import jwt
 import datetime
@@ -16,6 +18,8 @@ import uuid
 # Set up logging
 import logging
 logging.basicConfig(level=logging.INFO)
+
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'D:/GR2/quizzzy2/quizzzy-backend/app/secret/serviceAccountKey.json'
 
 
 def english_to_vietnamese(text):
@@ -511,3 +515,35 @@ class FirebaseService:
         except Exception as e:
             print(f"Error changing user info: {e}")
             return False
+
+    def upload_avatar(self, uid: str, file):
+        """Upload avatar for a user and update Firestore.
+
+        Args:
+            uid (str): User ID.
+            file: File object of the avatar image.
+
+        Returns:
+            str: Public URL of the uploaded avatar.
+        """
+        # Initialize the Cloud Storage client
+        storage_client = storage.Client()
+        bucket_name = 'nabingx_bucket'
+        bucket = storage_client.bucket(bucket_name)
+
+        # Create a new blob and upload the file's content.
+        blob = bucket.blob(f'avatars/{uid}/{file.filename}')
+        blob.upload_from_file(file.file)
+
+        # No need to call make_public() because we're using uniform bucket-level access
+        # Instead, configure the bucket IAM policy to allow public access to objects if needed
+
+        # Make the blob public
+        blob.make_public()
+
+        # Update Firestore with the avatar URL
+        avatar_url = blob.public_url
+        user_ref = self._db.collection('users').document(uid)
+        user_ref.update({'avatar': avatar_url})
+
+        return avatar_url
