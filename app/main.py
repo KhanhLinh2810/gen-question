@@ -87,7 +87,11 @@ def process_request(request):
 # pylint: disable=too-few-public-methods
 class ModelInput(BaseModel):
     """General request model structure for flutter incoming req."""
-    # uid: Optional[str] = None
+    uid: Optional[str] = None
+    context: str
+    name: str
+
+class UserInput(BaseModel):
     context: str
     name: str
 
@@ -103,6 +107,7 @@ class ModelRatingInput(BaseModel):
     name: str
     question_id: str
     rate: int
+
 class ModelCommentInput(BaseModel):
     identifier: str
     name: str
@@ -121,6 +126,20 @@ class UserLogin(BaseModel):
 class UserChangePassword(BaseModel):
     password: str
     new_password: str
+
+class All_ans(BaseModel):
+    """All answers model."""
+    ans1: str
+    ans2: str
+    ans3: str
+    ans4: str
+   
+class UpdateQuestion(BaseModel):
+    """Update question model."""
+    all_ans: All_ans
+    context: str
+    crct_ans: str
+    question: str
 
 class User(BaseModel):
     uid: str
@@ -183,7 +202,7 @@ def create_moodle_xml(questions):
 # req -> context and ans-s,
 # res -> questions
 @ app.post('/get-question')
-async def model_inference(request: ModelInput, bg_task: BackgroundTasks, token: str = Depends(auth_scheme)):
+async def model_inference(request: UserInput, bg_task: BackgroundTasks, token: str = Depends(auth_scheme)):
     """Process user request
 
     Args:
@@ -211,8 +230,8 @@ async def model_inference(request: ModelInput, bg_task: BackgroundTasks, token: 
     # Thực hiện xử lý yêu cầu và lưu kết quả vào Firestore
     # Không dùng background vì để nó chạy trong cùng 1 thread để chờ xử lí xong mới có results
     user_data = fs.get_user_by_token(token)
-    request.uid = user_data['uid']
-    results = process_request(request)
+    model_input = ModelInput(**request.dict(), uid=user_data['uid'])
+    results = process_request(model_input)
 
     return {
         'status': 200,
@@ -221,7 +240,7 @@ async def model_inference(request: ModelInput, bg_task: BackgroundTasks, token: 
 
 # API để chia đoạn văn thành các câu và gửi yêu cầu cho API `get-question`
 @ app.post('/get-questions')
-async def get_questions(request: ModelInput, bg_task: BackgroundTasks, token: str = Depends(auth_scheme)):
+async def get_questions(request: UserInput, bg_task: BackgroundTasks, token: str = Depends(auth_scheme)):
     """Process user request by splitting the context into sentences 
     and sending requests to the `get-question` API for each sentence.
 
@@ -244,10 +263,10 @@ async def get_questions(request: ModelInput, bg_task: BackgroundTasks, token: st
     sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
 
     user_data = fs.get_user_by_token(token)
-    request.uid = user_data['uid']
+    model_input = ModelInput(**request.dict(), uid=user_data['uid'])
     # Gửi yêu cầu cho mỗi câu và thu thập kết quả
     for sentence in sentences:
-        result = process_request(ModelInput(context=sentence, uid=request.uid, name=request.name))
+        result = process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
         results.append(result)
         # bg_task.add_task(process_request, ModelInput(context=sentence, uid=request.uid, name=request.name))
 
@@ -690,5 +709,36 @@ async def upload_avatar(file: UploadFile = File(...), token: str = Depends(auth_
         # Upload avatar và nhận URL của ảnh
         avatar_url = fs.upload_avatar(user_data['uid'], file)
         return {"avatar_url": avatar_url}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post('/change-topic-name')
+async def change_topic_name(topic: str, new_topic: str, token: str = Depends(auth_scheme)):
+    try:
+        user_data = fs.get_user_by_token(token)
+        uid = user_data['uid']
+        response = fs.change_topic_name(uid, topic, new_topic)
+        return JSONResponse(content=response)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+   
+@app.post('/change-question')
+async def update_question(topic: str, question_id: str, info: UpdateQuestion, token: str = Depends(auth_scheme)):
+    try:
+        user_data = fs.get_user_by_token(token)
+        uid = user_data['uid']
+        new_info = {
+            'all_ans': {
+                '0': info.all_ans.ans1,
+                '1': info.all_ans.ans2,
+                '2': info.all_ans.ans3,
+                '3': info.all_ans.ans4
+            },
+            'context': info.context,
+            'crct_ans': info.crct_ans,
+            'question': info.question
+        }
+        response = fs.update_question(uid, topic, question_id, new_info)
+        return JSONResponse(content=response)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

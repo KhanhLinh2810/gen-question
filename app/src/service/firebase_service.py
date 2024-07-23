@@ -547,3 +547,51 @@ class FirebaseService:
         user_ref.update({'avatar': avatar_url})
 
         return avatar_url
+
+    def change_topic_name(self, uid: str, old_topic: str, new_topic: str):
+        """Change the name of a topic in Firestore based on user id.
+ 
+        Args:
+            uid (str): user id.
+            old_topic (str): old topic name.
+            new_topic (str): new topic name.
+ 
+        Returns:
+            bool: True if change is successful, False otherwise.
+        """
+        # Lấy tài liệu của user
+        user_doc_ref = self._db.collection('users').document(uid)
+        old_topic_ref = user_doc_ref.collection(old_topic)
+        new_topic_ref = user_doc_ref.collection(new_topic)
+ 
+        # Lấy tất cả các tài liệu từ collection topic cũ
+        documents = old_topic_ref.stream()
+        # Sao chép các tài liệu từ topic cũ sang topic mới
+        for doc in documents:
+            doc_dict = doc.to_dict()
+            new_topic_ref.document(doc.id).set(doc_dict)
+ 
+        # Xóa collection topic cũ
+        if not  self.delete_topic_by_uid(uid, old_topic):
+            raise ValueError(f"Topic {old_topic} does not exist or is already empty.")
+        return {'status': 200, 'message': f'Topic {old_topic} name changed to {new_topic} successfully'}
+   
+    def update_question(self, uid: str, topic: str, question_id: str, new_info: dict):
+        """Update a question in Firestore based on user id, topic, and question id.
+ 
+        Args:
+            uid (str): user id.
+            topic (str): topic name.
+            question_id (str): question document id.
+            new_info (dict): new question information.
+ 
+        Returns:
+            bool: True if update is successful, False otherwise.
+        """
+        # Truy cập collection của topic
+        question_ref = self._db.collection('users').document(uid).collection(topic).document(question_id)
+       
+        if not question_ref.get().exists:
+            raise ValueError(f"Question {question_id} does not exist in topic {topic}.")
+        question_ref.update(new_info)
+        return {"status": "success", "message": f"Question {question_id} of topic {topic} updated successfully"}
