@@ -7,6 +7,7 @@ This module handles all API requests.
 
 # pylint: disable=no-name-in-module
 import os
+from PyPDF2 import PdfReader
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Header, File, UploadFile
@@ -24,7 +25,8 @@ from src.model.keyword_extractor import KeywordExtractor
 from src.service.firebase_service import FirebaseService
 from deep_translator import GoogleTranslator
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Dict
+import io
 
 
 # initialize fireabse client
@@ -229,13 +231,21 @@ async def model_inference(request: UserInput, bg_task: BackgroundTasks, token: s
 
     # Thực hiện xử lý yêu cầu và lưu kết quả vào Firestore
     # Không dùng background vì để nó chạy trong cùng 1 thread để chờ xử lí xong mới có results
+    results = []
+    error_sentences = []
     user_data = fs.get_user_by_token(token)
     model_input = ModelInput(**request.dict(), uid=user_data['uid'])
-    results = process_request(model_input)
+    try:
+        results = process_request(model_input)
+    except Exception as e:
+        # Không để là model_input.context mà là request.context vì model_input.context là tiếng Anh
+        print(f"Lỗi khi xử lí câu: {request.context}. Lỗi: {e}")
+        error_sentences.append({'sentence': request.context, 'error': str(e)})
 
     return {
         'status': 200,
-        'data': results
+        'data': results,
+        'errors': error_sentences if error_sentences else None
     }
 
 # API để chia đoạn văn thành các câu và gửi yêu cầu cho API `get-question`
@@ -252,6 +262,7 @@ async def get_questions(request: UserInput, bg_task: BackgroundTasks, token: str
     """
     # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
     results = []
+    error_sentences = []
 
     # Tạo biểu thức chính quy để tìm các dấu ngắt câu
     sentence_delimiters = r'[.!?]'
@@ -266,12 +277,23 @@ async def get_questions(request: UserInput, bg_task: BackgroundTasks, token: str
     model_input = ModelInput(**request.dict(), uid=user_data['uid'])
     # Gửi yêu cầu cho mỗi câu và thu thập kết quả
     for sentence in sentences:
-        result = process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
-        results.append(result)
-        # bg_task.add_task(process_request, ModelInput(context=sentence, uid=request.uid, name=request.name))
+        try:
+            result = process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
+            results.append(result)
+            # bg_task.add_task(process_request, ModelInput(context=sentence, uid=request.uid, name=request.name))
+        except Exception as e:
+            print(f"Lỗi khi xử lí câu: {sentence}. Lỗi: {e}")
+            error_sentences.append({'sentence': sentence, 'error': str(e)})
+            continue
 
     # Trả về kết quả
-    return JSONResponse(content={'status': 200, 'data': results})
+    response_content = {
+        'status': 200,
+        'data': results,
+        'errors': error_sentences if error_sentences else None
+    }
+    
+    return JSONResponse(content=response_content)
 
 @ app.post('/export-questions')
 async def export_questions(request: ModelExportInput, token: str = Depends(auth_scheme)):
@@ -742,3 +764,63 @@ async def update_question(topic: str, question_id: str, info: UpdateQuestion, to
         return JSONResponse(content=response)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/upload_pdf_to_questions")
+async def upload_pdf(file: UploadFile = File(...), token: str = Depends(auth_scheme)) -> Dict[str, str]:
+    try:
+        user_data = fs.get_user_by_token(token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Kiểm tra định dạng file
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="File không phải định dạng PDF")
+
+    # try:
+    # Đọc nội dung của file PDF
+    file_read = await file.read()
+    pdf_reader = PdfReader(io.BytesIO(file_read))
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text() or ""
+    print(text)
+    
+    # Lấy tên file làm topic, bỏ phần ".pdf"
+    topic = os.path.splitext(file.filename)[0]
+    print(topic)
+
+    # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
+    results = []
+    error_sentences = []
+
+    # Tạo biểu thức chính quy để tìm các dấu ngắt câu
+    sentence_delimiters = r'[.!?\n]'
+
+    # Tách đoạn văn thành các câu
+    sentences = re.split(sentence_delimiters, text)
+
+    # Loại bỏ các câu rỗng
+    sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
+    print(sentences)
+
+    model_input = ModelInput(context=text, name=topic, uid=user_data['uid'])
+    # Gửi yêu cầu cho mỗi câu và thu thập kết quả
+    for sentence in sentences:
+        try:
+            result = process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
+            results.append(result)
+        except Exception as e:
+            print(f"Lỗi khi xử lí câu: {sentence}. Lỗi: {e}")
+            error_sentences.append({'sentence': sentence, 'error': str(e)})
+            continue
+
+    response_content = {
+        'status': 200,
+        'data': results,
+        'errors': error_sentences if error_sentences else None
+    }
+    
+    return JSONResponse(content=response_content)
+    
+    # except Exception as e:
+        # raise HTTPException(status_code=500, detail=f"Error processing PDF: {e}")
