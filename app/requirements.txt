@@ -24,3 +24,8 @@ deep-translator
 bcrypt
 uvicorn
 gunicorn
+
+PyMuPDF
+pypdf2
+pytesseract
+pillow

@@ -25,7 +25,9 @@ from src.model.keyword_extractor import KeywordExtractor
 from src.service.firebase_service import FirebaseService
 from deep_translator import GoogleTranslator
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, List
+import pytesseract
+from PIL import Image, UnidentifiedImageError
 import io
 
 
@@ -44,6 +46,10 @@ app = FastAPI()
 # Định nghĩa một biến dùng cho xác thực
 auth_scheme = JWTBearer()
 
+
+# Chỉ định đường dẫn đến tệp thực thi Tesseract nếu không nằm trong PATH
+pytesseract.pytesseract.tesseract_cmd = r'C:\Users\Admin\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'  # Đường dẫn dành cho Windows
+# Đối với Ubuntu hoặc macOS, bạn có thể bỏ qua dòng này nếu Tesseract đã được thêm vào PATH
 
 def generate_que_n_ans(context):
     """Generate question from given context.
@@ -776,51 +782,119 @@ async def upload_pdf(file: UploadFile = File(...), token: str = Depends(auth_sch
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="File không phải định dạng PDF")
 
-    # try:
-    # Đọc nội dung của file PDF
-    file_read = await file.read()
-    pdf_reader = PdfReader(io.BytesIO(file_read))
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text() or ""
-    print(text)
+    try:
+        # Đọc nội dung của file PDF
+        file_read = await file.read()
+        pdf_reader = PdfReader(io.BytesIO(file_read))
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() or ""
+        print(text)
+        
+        # Lấy tên file làm topic, bỏ phần ".pdf"
+        topic = os.path.splitext(file.filename)[0]
+        print(topic)
+
+        # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
+        results = []
+        error_sentences = []
+
+        # Tạo biểu thức chính quy để tìm các dấu ngắt câu
+        sentence_delimiters = r'[.!?\n]'
+
+        # Tách đoạn văn thành các câu
+        sentences = re.split(sentence_delimiters, text)
+
+        # Loại bỏ các câu rỗng
+        sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
+        print(sentences)
+
+        model_input = ModelInput(context=text, name=topic, uid=user_data['uid'])
+        # Gửi yêu cầu cho mỗi câu và thu thập kết quả
+        for sentence in sentences:
+            try:
+                result = process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
+                results.append(result)
+            except Exception as e:
+                print(f"Lỗi khi xử lí câu: {sentence}. Lỗi: {e}")
+                error_sentences.append({'sentence': sentence, 'error': str(e)})
+                continue
+
+        response_content = {
+            'status': 200,
+            'data': results,
+            'errors': error_sentences if error_sentences else None
+        }
+        
+        return JSONResponse(content=response_content)
     
-    # Lấy tên file làm topic, bỏ phần ".pdf"
-    topic = os.path.splitext(file.filename)[0]
-    print(topic)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {e}")
 
-    # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
-    results = []
-    error_sentences = []
-
-    # Tạo biểu thức chính quy để tìm các dấu ngắt câu
-    sentence_delimiters = r'[.!?\n]'
-
-    # Tách đoạn văn thành các câu
-    sentences = re.split(sentence_delimiters, text)
-
-    # Loại bỏ các câu rỗng
-    sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
-    print(sentences)
-
-    model_input = ModelInput(context=text, name=topic, uid=user_data['uid'])
-    # Gửi yêu cầu cho mỗi câu và thu thập kết quả
-    for sentence in sentences:
-        try:
-            result = process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
-            results.append(result)
-        except Exception as e:
-            print(f"Lỗi khi xử lí câu: {sentence}. Lỗi: {e}")
-            error_sentences.append({'sentence': sentence, 'error': str(e)})
-            continue
-
-    response_content = {
-        'status': 200,
-        'data': results,
-        'errors': error_sentences if error_sentences else None
-    }
+# Endpoint để nhận hình ảnh và tạo câu hỏi từ văn bản trích xuất
+@app.post("/generate_questions_from_image")
+async def generate_questions_from_image(file: UploadFile = File(...), token: str = Depends(auth_scheme)):
+    try:
+        user_data = fs.get_user_by_token(token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
-    return JSONResponse(content=response_content)
+    # Kiểm tra định dạng file
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File không phải là hình ảnh")
     
-    # except Exception as e:
-        # raise HTTPException(status_code=500, detail=f"Error processing PDF: {e}")
+    try:
+        # Đọc hình ảnh
+        image_data = await file.read()
+        image = Image.open(io.BytesIO(image_data))
+
+        # Sử dụng pytesseract để trích xuất văn bản với ngôn ngữ tiếng Việt
+        extracted_text = pytesseract.image_to_string(image, lang='vie')
+
+        # TODO: Sử dụng văn bản trích xuất để tạo câu hỏi
+        # Ví dụ giả định: sử dụng đoạn văn bản đầu tiên làm câu hỏi, các đoạn sau làm câu trả lời
+        lines = extracted_text.split('\n')
+        combined_text = ""
+        for i, line in enumerate(lines):
+            if i > 0:
+                combined_text += " "  # Thêm khoảng trắng trước mỗi dòng từ dòng thứ hai trở đi
+            combined_text += line
+
+        # Lấy tên file làm topic, bỏ phần ".png, etc"
+        topic = os.path.splitext(file.filename)[0]
+        print(topic)
+
+        # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
+        results = []
+        error_sentences = []
+
+        # Tạo biểu thức chính quy để tìm các dấu ngắt câu
+        sentence_delimiters = r'[.!?\n]'
+
+        # Tách đoạn văn thành các câu
+        sentences = re.split(sentence_delimiters, combined_text)
+
+        # Loại bỏ các câu rỗng
+        sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
+        print(sentences)
+
+        model_input = ModelInput(context=combined_text, name=topic, uid=user_data['uid'])
+        # Gửi yêu cầu cho mỗi câu và thu thập kết quả
+        for sentence in sentences:
+            try:
+                result = process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
+                results.append(result)
+            except Exception as e:
+                print(f"Lỗi khi xử lí câu: {sentence}. Lỗi: {e}")
+                error_sentences.append({'sentence': sentence, 'error': str(e)})
+                continue
+
+        response_content = {
+            'status': 200,
+            'data': results,
+            'errors': error_sentences if error_sentences else None
+        }
+        
+        return JSONResponse(content=response_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
