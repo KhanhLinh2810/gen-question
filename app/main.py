@@ -578,9 +578,32 @@ async def register_user(user: UserCreate):
         raise HTTPException(status_code=400, detail="Username already taken")
 
     # Lưu người dùng mới vào Firestore
-    user_data = fs.create_user(user.email, user.username, user.password)
+    user_data = fs.create_user(user.email, user.username, user.password, False)
 
     return JSONResponse(content={'status': 201, 'message': 'User registered successfully', 'user_data': user_data})
+
+# admin registration
+@app.post('/admin-register')
+async def register_admin(admin: UserCreate):
+    """
+        Register a new admin with unique email and username validation
+        Args:
+            admin (Usercreate): admin registration model
+        Returns: 
+            JSONResponse: response with status
+    """
+    # Kiểm tra email duy nhất
+    if fs.get_user_by_email(admin.email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Kiểm tra username duy nhất
+    if fs.get_user_by_username(admin.username):
+        raise HTTPException(status_code=400, detail="Username already taken")
+
+    # Lưu người dùng mới vào Firestore
+    admin_data = fs.create_user(admin.email, admin.username, admin.password, True)
+
+    return JSONResponse(content={'status': 201, 'message': 'Admin registered successfully', 'admin_data': admin_data})
 
 # User login
 @app.post('/login')

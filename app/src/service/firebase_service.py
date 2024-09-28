@@ -236,7 +236,7 @@ class FirebaseService:
             questions.append(question)
         return questions
 
-    def create_user(self, email: str, username: str, password: str):
+    def create_user(self, email: str, username: str, password: str, is_admin: bool):
         """Create a new user with a unique UID.
 
         Args:
@@ -269,7 +269,8 @@ class FirebaseService:
             'uid': uid,
             'email': email,
             'username': username,
-            'password': hashed_password.decode('utf-8')
+            'password': hashed_password.decode('utf-8'),
+            'is_admin': is_admin
         }
         users_ref.document(uid).set(user_data)
         
