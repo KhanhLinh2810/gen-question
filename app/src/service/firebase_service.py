@@ -386,6 +386,16 @@ class FirebaseService:
         except jwt.InvalidTokenError:
             raise ValueError("Invalid token")
 
+    async def update_user_token(self, uid: str, token: str):
+        """Cập nhật token của user trong Firestore."""
+        try:
+            user_ref = self._db.collection('users').document(uid)
+            user_ref.update({
+                'current_token': token  # Lưu token mới
+            })
+        except Exception as e:
+            raise ValueError(f"Could not update token: {str(e)}")
+    
     def get_all_topics_and_questions_by_uid(self, uid):
         """Get all topics and their questions based on user id.
  
@@ -414,6 +424,7 @@ class FirebaseService:
             all_data[topic] = questions
        
         return all_data
+    
     def delete_topic_by_uid(self, uid, topic):
         """Delete a topic from Firestore based on user id and topic.
  

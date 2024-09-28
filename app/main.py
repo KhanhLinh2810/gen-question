@@ -44,7 +44,7 @@ keyword_extractor = KeywordExtractor()
 app = FastAPI()
 
 # Định nghĩa một biến dùng cho xác thực
-auth_scheme = JWTBearer()
+auth_scheme = JWTBearer(fs._db)
 
 
 # Chỉ định đường dẫn đến tệp thực thi Tesseract nếu không nằm trong PATH
@@ -618,6 +618,9 @@ async def login_user(user: UserLogin):
     """
     try:
         token, uid = fs.authenticate_user(user.identifier, user.password)
+
+        # Lưu token mới vào Firestore
+        await fs.update_user_token(uid, token)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
