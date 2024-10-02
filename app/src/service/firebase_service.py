@@ -223,7 +223,7 @@ class FirebaseService:
             raise ValueError(f"Topic '{topic}' does not exist for user '{uid}'.")
         
         questions = []
-        for doc in documents:
+        for doc in documents_list:
             data = doc.to_dict()
             print(data['question'])
             print([data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']])
@@ -415,9 +415,22 @@ class FirebaseService:
             questions = []
             for doc in documents:
                 data = doc.to_dict()
+                # question = {
+                #     'text': data['question'],
+                #     'choices': [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']],
+                #     'correct_choice': data['crct_ans']
+                # }
+                # Kiểm tra loại dữ liệu của 'all_ans'
+                if isinstance(data['all_ans'], list):
+                    choices = data['all_ans']  # Sử dụng trực tiếp nếu là danh sách
+                elif isinstance(data['all_ans'], dict):
+                    choices = [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']]
+                else:
+                    raise ValueError("Unexpected type for 'all_ans'")
+
                 question = {
                     'text': data['question'],
-                    'choices': [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']],
+                    'choices': choices,
                     'correct_choice': data['crct_ans']
                 }
                 questions.append(question)
