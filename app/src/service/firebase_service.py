@@ -8,12 +8,22 @@ import firebase_admin
 
 from firebase_admin import firestore
 from firebase_admin import credentials
+
+from sqlalchemy.future import select
+from sqlalchemy import delete, update
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker,selectinload
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from models import User, Question, Choice, Comment, Rating
 from deep_translator import GoogleTranslator
 from google.cloud import storage
 import bcrypt
+# from passlib.hash import bcrypt
 import jwt
 import datetime
 import uuid
+from typing import Optional, Dict, List
+import xml.etree.ElementTree as ET
 
 # Set up logging
 import logging
@@ -27,28 +37,72 @@ def english_to_vietnamese(text):
     translated_text = translator.translate(text)
     return translated_text
 
-class FirebaseService:
+# Tạo engine cho cơ sở dữ liệu
+database_url = "mysql+aiomysql://my_user:my_password@localhost/my_database"
+engine = create_async_engine(database_url, echo=True)
+
+# Tạo session maker
+SessionLocal = sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+
+class MySQLService:
+    """FirebaseService"""
     """Handle firestore operations."""
 
-    def __init__(self):
-        """Initialize firebase firestore client."""
-        firebase_admin.initialize_app(
-            credentials.Certificate("secret/serviceAccountKey.json"))
-        self._db = firestore.client()
+    def __init__(self, db: AsyncSession):
+        # """Initialize firebase firestore client."""
+        # firebase_admin.initialize_app(
+        #     credentials.Certificate("secret/serviceAccountKey.json"))
+        # self._db = firestore.client()
+        # # Thông tin kết nối đến cơ sở dữ liệu MySQL
+        # self.database_url = "mysql+aiomysql://my_user:my_password@localhost/my_database"
+        
+        # # Tạo engine cho cơ sở dữ liệu
+        # self.engine = create_async_engine(self.database_url, echo=True)
 
-    def update_generated_status(self, request, status):
-        """Change status of 'GeneratorWorking' is firestore.
+        # # Tạo session maker
+        # self.SessionLocal = sessionmaker(
+        #     bind=self.engine,
+        #     class_=AsyncSession,
+        #     expire_on_commit=False
+        # )
 
-        Args:
-            request (ModelInput): request format from flutter.
-            status (bool): state whether question generated.
-        """
+        # # Tạo phiên làm việc
+        # self.db: AsyncSession = self.SessionLocal()
+        self.db = db
+    
+    async def close(self):
+        """Đóng phiên làm việc."""
+        await self.db.close()
 
+    # def update_generated_status(self, request, status):
+        # """Change status of 'GeneratorWorking' is firestore.
+
+        # Args:
+        #     request (ModelInput): request format from flutter.
+        #     status (bool): state whether question generated.
+        # """
+
+        # if not isinstance(status, bool):
+        #     raise TypeError("'status' must be a bool value")
+
+        # doc_ref = self._db.collection('users').document(request.uid)
+        # doc_ref.update({'GeneratorWorking': status})
+    async def update_generated_status(self, uid: str, status: bool):
+        """Cập nhật trạng thái 'GeneratorWorking' trong bảng users"""
         if not isinstance(status, bool):
-            raise TypeError("'status' must be a bool value")
+            raise TypeError("'status' phải là kiểu bool")
 
-        doc_ref = self._db.collection('users').document(request.uid)
-        doc_ref.update({'GeneratorWorking': status})
+        query = select(User).where(User.id == uid)
+        result = await self.db.execute(query)
+        user = result.scalar_one_or_none()
+
+        if user:
+            user.GeneratorWorking = status
+            await self.db.commit()
 
     def __validate(self, questions, crct_ans, all_ans):
         """Validate data
@@ -72,116 +126,198 @@ class FirebaseService:
         if not isinstance(all_ans, list):
             raise TypeError("'all_ans' must be list of strings")
 
-    def check_duplicates(self, request, question, answers):
-        """Kiểm tra câu hỏi và đáp án có trùng lặp trong database không.
+    # def check_duplicates(self, request, question, answers):
+    #     """Kiểm tra câu hỏi và đáp án có trùng lặp trong database không.
 
-        Args:
-            request (ModelInput): yêu cầu từ người dùng.
-            question (str): câu hỏi cần kiểm tra.
-            answers (list[str]): các đáp án cần kiểm tra.
+    #     Args:
+    #         request (ModelInput): yêu cầu từ người dùng.
+    #         question (str): câu hỏi cần kiểm tra.
+    #         answers (list[str]): các đáp án cần kiểm tra.
 
-        Returns:
-            dict: thông tin trùng lặp nếu có.
-        """
-        doc_ref = self._db.collection('users').document(request.uid)
-        collection_name = english_to_vietnamese(request.name)
-        collection_ref = doc_ref.collection(collection_name)
-        documents = collection_ref.stream()
+    #     Returns:
+    #         dict: thông tin trùng lặp nếu có.
+    #     """
+    #     doc_ref = self._db.collection('users').document(request.uid)
+    #     collection_name = english_to_vietnamese(request.name)
+    #     collection_ref = doc_ref.collection(collection_name)
+    #     documents = collection_ref.stream()
         
+    #     duplicate_info = {
+    #         'duplicate_questions': [],
+    #         'duplicate_answers': []
+    #     }
+
+    #     # Lặp qua các tài liệu trong collection
+    #     for idx, doc in enumerate(documents):
+    #         data = doc.to_dict()
+
+    #         # Kiểm tra nếu câu hỏi trùng lặp
+    #         if data['question'] == question:
+    #             duplicate_info['duplicate_questions'].append(idx)
+
+    #         # Kiểm tra các đáp án trùng lặp
+    #         for answer in answers:
+    #             if answer in data['all_ans'].values():
+    #                 duplicate_info['duplicate_answers'].append({'index': idx, 'answer': answer})
+
+    #     # Trả về thông tin về các câu hỏi và đáp án trùng lặp
+    #     return duplicate_info
+    async def check_duplicates(self, uid: str, question: str, answers: list, current_question_id: int = None):
+        """Kiểm tra câu hỏi và đáp án có trùng lặp trong cơ sở dữ liệu không, bỏ qua chính câu hỏi và đáp án của nó."""
+        
+        # Kiểm tra trùng lặp của câu hỏi
+        query = select(Question).where(
+            Question.user_id == uid,
+            Question.question_text == question,
+            Question.id != current_question_id  # Loại trừ chính câu hỏi này
+        )
+        result = await self.db.execute(query)
+        duplicate_questions = result.scalars().all()
+
         duplicate_info = {
-            'duplicate_questions': [],
+            'duplicate_questions': [q.id for q in duplicate_questions],
             'duplicate_answers': []
         }
 
-        # Lặp qua các tài liệu trong collection
-        for idx, doc in enumerate(documents):
-            data = doc.to_dict()
+        # Kiểm tra trùng lặp của các đáp án
+        for answer in answers:
+            answer_query = select(Choice).where(
+                Choice.question_id.in_([q.id for q in duplicate_questions]),
+                Choice.choice_text == answer
+            )
+            answer_result = await self.db.execute(answer_query)
+            duplicate_choices = answer_result.scalars().all()
 
-            # Kiểm tra nếu câu hỏi trùng lặp
-            if data['question'] == question:
-                duplicate_info['duplicate_questions'].append(idx)
+            # Loại trừ các đáp án từ câu hỏi hiện tại
+            duplicate_info['duplicate_answers'].extend([
+                {'question_id': choice.question_id, 'answer': choice.choice_text}
+                for choice in duplicate_choices if choice.question_id != current_question_id
+            ])
 
-            # Kiểm tra các đáp án trùng lặp
-            for answer in answers:
-                if answer in data['all_ans'].values():
-                    duplicate_info['duplicate_answers'].append({'index': idx, 'answer': answer})
-
-        # Trả về thông tin về các câu hỏi và đáp án trùng lặp
         return duplicate_info
     
-    def send_results_to_fs(self, request, questions, crct_ans, all_ans, context):
-        """Send generated question to appropiate fs doc.
+    # def send_results_to_fs(self, request, questions, crct_ans, all_ans, context):
+    #     """Send generated question to appropiate fs doc.
 
-        Args:
-            request (ModelInput): request format from flutter.
-            questions (list[str]): list of generated questions.
-            crct_ans (list[str]): list of correct answers.
-            all_ans (list[str]): list of all answers squeezed together.
-            context (str): input corpus used to generate questions.
-        """
+    #     Args:
+    #         request (ModelInput): request format from flutter.
+    #         questions (list[str]): list of generated questions.
+    #         crct_ans (list[str]): list of correct answers.
+    #         all_ans (list[str]): list of all answers squeezed together.
+    #         context (str): input corpus used to generate questions.
+    #     """
 
-        self.__validate(questions=questions,
-                        crct_ans=crct_ans, all_ans=all_ans)
+    #     self.__validate(questions=questions,
+    #                     crct_ans=crct_ans, all_ans=all_ans)
 
-        doc_ref = self._db.collection('users').document(request.uid)
-        print(all_ans)
+    #     doc_ref = self._db.collection('users').document(request.uid)
+    #     print(all_ans)
+    #     results = []
+    #     for idx, question in enumerate(questions):
+    #         q_dict = {
+    #             'context': english_to_vietnamese(context),
+    #             'question': english_to_vietnamese(question),
+    #             'crct_ans': english_to_vietnamese(crct_ans[idx]),
+    #             # 'all_ans': all_ans[idx * 4: 4 + idx * 4]
+    #             'all_ans': {
+    #                 '0': english_to_vietnamese(all_ans[idx * 4]),
+    #                 '1': english_to_vietnamese(all_ans[idx * 4 + 1]),
+    #                 '2': english_to_vietnamese(all_ans[idx * 4 + 2]),
+    #                 '3': english_to_vietnamese(all_ans[idx * 4 + 3])
+    #             }
+    #         }
+            
+    #         collection_name = english_to_vietnamese(request.name)
+    #         collection_ref = doc_ref.collection(collection_name)
+
+            
+    #         # # Kiểm tra xem tên collection đã tồn tại chưa
+    #         # if collection_ref.get():
+    #         #     # Collection đã tồn tại, cập nhật dữ liệu
+    #         #     doc_ref.collection(collection_name).document(str(idx)).update(q_dict)
+    #         #     print("Dữ liệu đã được cập nhật trong collection", collection_name)
+    #         # else:
+    #         #     # Collection chưa tồn tại, tạo mới
+    #         #     doc_ref.collection(collection_name).document(str(idx)).set(q_dict)
+    #         #     print("Dữ liệu đã được thêm vào collection", collection_name)
+            
+            
+    #         # # Sử dụng ID tự động của Firestore để tạo tài liệu mới
+    #         # collection_ref.add(q_dict)
+    #         # print("Dữ liệu đã được thêm vào collection", collection_name)
+
+            
+    #         # Kiểm tra trùng lặp
+    #         duplicate_info = self.check_duplicates(request, q_dict['question'], list(q_dict['all_ans'].values()))
+            
+    #         # Lấy số lượng tài liệu hiện có trong collection
+    #         current_documents = collection_ref.get()
+    #         current_count = len(current_documents)
+
+    #         # results = []  # Danh sách để lưu trữ kết quả
+
+    #         # Sử dụng current_count + idx để tạo ID tài liệu tuần tự
+    #         document_id = str(current_count + idx)
+    #         collection_ref.document(document_id).set(q_dict)
+    #         print("Dữ liệu đã được thêm vào collection", collection_name, "với document ID:", document_id)
+
+    #         # Lưu lại thông tin về collection name, document ID và dữ liệu đã lưu vào danh sách results
+    #         results.append({
+    #             'collection_name': collection_name,
+    #             'document_id': document_id,
+    #             'data': q_dict,
+    #             'duplicate_info': duplicate_info
+    #         })
+    #     # Trả về danh sách results sau khi hoàn tất quá trình lưu trữ
+    #     return results
+    async def send_results_to_db(self, uid: str, topic: str, questions: list, crct_ans: list, all_ans: list, context: str):
+        """Gửi câu hỏi đã tạo vào cơ sở dữ liệu MySQL"""
+        self.__validate(questions=questions, crct_ans=crct_ans, all_ans=all_ans)
+
+        query = select(Question).where(Question.user_id == uid, Question.topic == topic)
+        result = await self.db.execute(query)
+        topic_questions = result.scalars().all()
+        if topic_questions:
+            topic_id = topic_questions[0].topic
+
+        if not topic:
+            topic = str(uuid.uuid4())
+
         results = []
         for idx, question in enumerate(questions):
-            q_dict = {
-                'context': english_to_vietnamese(context),
-                'question': english_to_vietnamese(question),
-                'crct_ans': english_to_vietnamese(crct_ans[idx]),
-                # 'all_ans': all_ans[idx * 4: 4 + idx * 4]
-                'all_ans': {
-                    '0': english_to_vietnamese(all_ans[idx * 4]),
-                    '1': english_to_vietnamese(all_ans[idx * 4 + 1]),
-                    '2': english_to_vietnamese(all_ans[idx * 4 + 2]),
-                    '3': english_to_vietnamese(all_ans[idx * 4 + 3])
-                }
-            }
-            
-            collection_name = english_to_vietnamese(request.name)
-            collection_ref = doc_ref.collection(collection_name)
+            new_question = Question(
+                user_id=uid,
+                topic=english_to_vietnamese(topic),
+                question_text=english_to_vietnamese(question),
+                context=english_to_vietnamese(context),
+                correct_choice=english_to_vietnamese(crct_ans[idx])
+            )
+            self.db.add(new_question)
+            await self.db.flush()  # Để lấy ID của câu hỏi
 
-            
-            # # Kiểm tra xem tên collection đã tồn tại chưa
-            # if collection_ref.get():
-            #     # Collection đã tồn tại, cập nhật dữ liệu
-            #     doc_ref.collection(collection_name).document(str(idx)).update(q_dict)
-            #     print("Dữ liệu đã được cập nhật trong collection", collection_name)
-            # else:
-            #     # Collection chưa tồn tại, tạo mới
-            #     doc_ref.collection(collection_name).document(str(idx)).set(q_dict)
-            #     print("Dữ liệu đã được thêm vào collection", collection_name)
-            
-            
-            # # Sử dụng ID tự động của Firestore để tạo tài liệu mới
-            # collection_ref.add(q_dict)
-            # print("Dữ liệu đã được thêm vào collection", collection_name)
+            # Lưu các lựa chọn câu trả lời
+            choices = [
+                english_to_vietnamese(all_ans[idx * 4 + i]) for i in range(4)
+            ]
+            for choice_text in choices:
+                new_choice = Choice(
+                    question_id=new_question.id,
+                    choice_text=choice_text
+                )
+                self.db.add(new_choice)
 
-            
-            # Kiểm tra trùng lặp
-            duplicate_info = self.check_duplicates(request, q_dict['question'], list(q_dict['all_ans'].values()))
-            
-            # Lấy số lượng tài liệu hiện có trong collection
-            current_documents = collection_ref.get()
-            current_count = len(current_documents)
+            await self.db.commit()
 
-            # results = []  # Danh sách để lưu trữ kết quả
-
-            # Sử dụng current_count + idx để tạo ID tài liệu tuần tự
-            document_id = str(current_count + idx)
-            collection_ref.document(document_id).set(q_dict)
-            print("Dữ liệu đã được thêm vào collection", collection_name, "với document ID:", document_id)
-
-            # Lưu lại thông tin về collection name, document ID và dữ liệu đã lưu vào danh sách results
+            duplicate_info = await self.check_duplicates(uid, new_question.question_text, choices, new_question.id)
             results.append({
-                'collection_name': collection_name,
-                'document_id': document_id,
-                'data': q_dict,
+                'question_id': new_question.id,
+                'topic': new_question.topic,
+                'question_text': new_question.question_text,
+                'choices': choices,
+                'correct_choice': new_question.correct_choice,
                 'duplicate_info': duplicate_info
             })
-        # Trả về danh sách results sau khi hoàn tất quá trình lưu trữ
+
         return results
     
     def __validate_export_input(self, uid, name):
@@ -194,350 +330,714 @@ class FirebaseService:
         Raises:
             ValueError: If any input is invalid.
         """
-        if not uid or not isinstance(uid, str):
-            raise ValueError("'uid' must be a non-empty string")
+        if not uid or not isinstance(uid, int):
+            raise ValueError("'uid' must be a int")
 
         if not name or not isinstance(name, str):
             raise ValueError("'name' must be a non-empty string")
 
-    def get_questions_by_uid_and_topic(self, uid, topic):
-        """Get questions from Firestore based on user id and topic.
+    # def get_questions_by_uid_and_topic(self, uid, topic):
+    #     """Get questions from Firestore based on user id and topic.
+
+    #     Args:
+    #         uid (str): user id.
+    #         topic (str): topic name.
+
+    #     Returns:
+    #         list[dict]: list of questions with their answers.
+    #     """
+    #     self.__validate_export_input(uid, topic)  # Validate inputs
+
+    #     doc_ref = self._db.collection('users').document(uid)
+    #     collection_ref = doc_ref.collection(topic)  # Không cần dịch topic
+
+    #     # Kiểm tra xem collection có tồn tại hay không
+    #     documents = collection_ref.stream()  # Lấy tất cả các tài liệu trong collection
+    #     documents_list = list(documents)  # Chuyển stream thành danh sách để kiểm tra
+
+    #     if not documents_list:
+    #         raise ValueError(f"Topic '{topic}' does not exist for user '{uid}'.")
+        
+    #     questions = []
+    #     for doc in documents_list:
+    #         data = doc.to_dict()
+    #         print(data['question'])
+    #         print([data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']])
+    #         print(str([data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']].index(data['crct_ans'])))
+    #         question = {
+    #             'text': data['question'],
+    #             'choices': [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']],
+    #             'correct_choice': data['crct_ans']
+    #         }
+    #         questions.append(question)
+    #     return questions
+    async def get_questions_by_uid_and_topic(self, uid: int, topic: str) -> List[Dict[str, any]]:
+        """Lấy câu hỏi từ MySQL dựa trên user id và topic.
 
         Args:
-            uid (str): user id.
-            topic (str): topic name.
+            uid (int): ID người dùng.
+            topic (str): Tên chủ đề.
 
         Returns:
-            list[dict]: list of questions with their answers.
+            list[dict]: danh sách câu hỏi với các đáp án của chúng.
         """
-        self.__validate_export_input(uid, topic)  # Validate inputs
+        # Xác thực đầu vào
+        if not isinstance(uid, int) or not isinstance(topic, str):
+            raise ValueError("Invalid uid or topic")
 
-        doc_ref = self._db.collection('users').document(uid)
-        collection_ref = doc_ref.collection(topic)  # Không cần dịch topic
+        # Truy vấn câu hỏi từ cơ sở dữ liệu dựa trên uid và topic
+        query = (
+            select(Question)
+            .where(Question.user_id == uid, Question.topic == topic)
+            .options(selectinload(Question.choices), selectinload(Question.comments), selectinload(Question.ratings))
+            )  # Tải sẵn các choices, comments và ratings
+        result = await self.db.execute(query)
+        questions_list = result.scalars().all()  # Lấy tất cả các câu hỏi
 
-        # Kiểm tra xem collection có tồn tại hay không
-        documents = collection_ref.stream()  # Lấy tất cả các tài liệu trong collection
-        documents_list = list(documents)  # Chuyển stream thành danh sách để kiểm tra
-
-        if not documents_list:
+        if not questions_list:
             raise ValueError(f"Topic '{topic}' does not exist for user '{uid}'.")
-        
+
         questions = []
-        for doc in documents_list:
-            data = doc.to_dict()
-            print(data['question'])
-            print([data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']])
-            print(str([data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']].index(data['crct_ans'])))
-            question = {
-                'text': data['question'],
-                'choices': [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']],
-                'correct_choice': data['crct_ans']
+        for question in questions_list:
+            topic = question.topic
+            # Lấy các lựa chọn cho câu hỏi
+            choices: List[Choice] = question.choices
+            choices_text = [choice.choice_text for choice in choices] # Truy cập danh sách các lựa chọn liên quan
+
+            # Lấy các bình luận cho câu hỏi
+            comments: List[Comment] = question.comments
+            comments_text = [comment.comment_text for comment in comments]
+            
+            # Lấy các đánh giá cho câu hỏi
+            ratings: List[Rating] = question.ratings
+            ratings_values = [rating.rating_value for rating in ratings]
+
+            # Tính toán điểm trung bình
+            average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
+
+            question_data = {
+                'text': question.question_text,
+                'choices': choices_text,
+                'correct_choice': question.correct_choice,
+                'comments': comments_text,  # Thêm bình luận vào dữ liệu câu hỏi
+                'ratings': ratings_values,    # Thêm đánh giá vào dữ liệu câu hỏi
+                'average_rating': average_rating
             }
-            questions.append(question)
+            questions.append(question_data)
+
         return questions
 
-    def create_user(self, email: str, username: str, password: str, is_admin: bool):
-        """Create a new user with a unique UID.
+    # def create_user(self, email: str, username: str, password: str, is_admin: bool):
+    #     """Create a new user with a unique UID.
 
-        Args:
-            email (str): User's email.
-            username (str): User's username.
-            password (str): User's password.
+    #     Args:
+    #         email (str): User's email.
+    #         username (str): User's username.
+    #         password (str): User's password.
 
-        Returns:
-            dict: User's information including UID.
-        """
-        users_ref = self._db.collection('users')
+    #     Returns:
+    #         dict: User's information including UID.
+    #     """
+    #     users_ref = self._db.collection('users')
         
-        # Check if email or username already exists
-        email_query = users_ref.where('email', '==', email).get()
-        if email_query:
-            raise ValueError("Email already exists")
+    #     # Check if email or username already exists
+    #     email_query = users_ref.where('email', '==', email).get()
+    #     if email_query:
+    #         raise ValueError("Email already exists")
         
-        username_query = users_ref.where('username', '==', username).get()
-        if username_query:
-            raise ValueError("Username already exists")
+    #     username_query = users_ref.where('username', '==', username).get()
+    #     if username_query:
+    #         raise ValueError("Username already exists")
         
-        # Hash the password
+    #     # Hash the password
+    #     hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        
+    #     # Create a unique UID
+    #     uid = str(uuid.uuid4())
+        
+    #     # Save the user to Firestore
+    #     user_data = {
+    #         'uid': uid,
+    #         'email': email,
+    #         'username': username,
+    #         'password': hashed_password.decode('utf-8'),
+    #         'is_admin': is_admin
+    #     }
+    #     users_ref.document(uid).set(user_data)
+        
+    #     return user_data
+    async def create_user(self, email: str, username: str, password: str, is_admin: bool = False):
+        """Tạo người dùng mới với MySQL"""
+        # hashed_password = bcrypt.hash(password)
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        
-        # Create a unique UID
-        uid = str(uuid.uuid4())
-        
-        # Save the user to Firestore
-        user_data = {
-            'uid': uid,
-            'email': email,
-            'username': username,
-            'password': hashed_password.decode('utf-8'),
-            'is_admin': is_admin
-        }
-        users_ref.document(uid).set(user_data)
-        
-        return user_data
+        new_user = User(
+            email=email,
+            username=username,
+            password=hashed_password.decode('utf-8'),
+            is_admin=is_admin,
+            GeneratorWorking=False,
+            current_token=None,
+            avatar=None 
+        )
+        self.db.add(new_user)
+        try:
+            await self.db.commit()
+            return new_user
+        except IntegrityError:
+            await self.db.rollback()
+            raise ValueError("Username or email already exists")
 
-    def authenticate_user(self, identifier, password):
-        """Authenticate a user with email/username and password.
+    # def authenticate_user(self, identifier, password):
+    #     """Authenticate a user with email/username and password.
 
-        Args:
-            identifier (str): User's email or username.
-            password (str): User's password.
+    #     Args:
+    #         identifier (str): User's email or username.
+    #         password (str): User's password.
 
-        Returns:
-            str: JWT token if authentication is successful.
-        """
-        users_ref = self._db.collection('users')
+    #     Returns:
+    #         str: JWT token if authentication is successful.
+    #     """
+    #     users_ref = self._db.collection('users')
         
-        # Check if the identifier is an email or username
-        user_query = users_ref.where('email', '==', identifier).get()
-        if not user_query:
-            user_query = users_ref.where('username', '==', identifier).get()
+    #     # Check if the identifier is an email or username
+    #     user_query = users_ref.where('email', '==', identifier).get()
+    #     if not user_query:
+    #         user_query = users_ref.where('username', '==', identifier).get()
         
-        if not user_query:
-            raise ValueError("Invalid email/username or password")
+    #     if not user_query:
+    #         raise ValueError("Invalid email/username or password")
         
-        user_data = user_query[0].to_dict()
+    #     user_data = user_query[0].to_dict()
         
+    #     # Check the password
+    #     if not bcrypt.checkpw(password.encode('utf-8'), user_data['password'].encode('utf-8')):
+    #         raise ValueError("Invalid email/username or password")
+        
+    #     # Generate a JWT token
+    #     token = jwt.encode({
+    #         'uid': user_data['uid'],
+    #         'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+    #     }, 'your_jwt_secret', algorithm='HS256')
+        
+    #     return token, user_data['uid']
+    async def authenticate_user(self, username_or_email: str, password: str):
+        """Xác thực người dùng với email/username và mật khẩu"""
+        query = select(User).where((User.username == username_or_email) | (User.email == username_or_email))
+        result = await self.db.execute(query)
+        user = result.scalar_one_or_none()
         # Check the password
-        if not bcrypt.checkpw(password.encode('utf-8'), user_data['password'].encode('utf-8')):
+        if not bcrypt.checkpw(password.encode('utf-8'), user.password.encode('utf-8')):
             raise ValueError("Invalid email/username or password")
         
         # Generate a JWT token
         token = jwt.encode({
-            'uid': user_data['uid'],
+            'uid': user.id,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
         }, 'your_jwt_secret', algorithm='HS256')
         
-        return token, user_data['uid']
+        return token, user.id
 
-    def get_user_by_email(self, email):
-        """Retrieve user data by email from Firestore.
+    # def get_user_by_email(self, email):
+    #     """Retrieve user data by email from Firestore.
+
+    #     Args:
+    #         email (str): Email to search for in Firestore.
+
+    #     Returns:
+    #         dict: User data if found, None otherwise.
+    #     """
+    #     users_ref = self._db.collection('users')
+    #     query = users_ref.where('email', '==', email).limit(1).get()
+        
+    #     for user in query:
+    #         return user.to_dict()
+
+    #     return None
+    async def get_user_by_email(self, email: str):
+        """Retrieve user data by email from MySQL.
 
         Args:
-            email (str): Email to search for in Firestore.
+            email (str): Email to search for in MySQL.
 
         Returns:
-            dict: User data if found, None otherwise.
+            User: User data if found, None otherwise.
         """
-        users_ref = self._db.collection('users')
-        query = users_ref.where('email', '==', email).limit(1).get()
+        result = await self.db.execute(select(User).where(User.email == email))
+        return result.scalar_one_or_none()  # Lấy một đối tượng User hoặc None nếu không tìm thấy
+
+    # def get_user_by_username(self, username):
+    #     """Retrieve user data by username from Firestore.
+
+    #     Args:
+    #         username (str): Username to search for in Firestore.
+
+    #     Returns:
+    #         dict: User data if found, None otherwise.
+    #     """
+    #     users_ref = self._db.collection('users')
+    #     query = users_ref.where('username', '==', username).limit(1).get()
         
-        for user in query:
-            return user.to_dict()
+    #     for user in query:
+    #         return user.to_dict()
 
-        return None
-
-    def get_user_by_username(self, username):
-        """Retrieve user data by username from Firestore.
+    #     return None
+    async def get_user_by_username(self, username: str):
+        """Retrieve user data by username from MySQL.
 
         Args:
-            username (str): Username to search for in Firestore.
+            username (str): Username to search for in MySQL.
 
         Returns:
-            dict: User data if found, None otherwise.
+            User: User data if found, None otherwise.
         """
-        users_ref = self._db.collection('users')
-        query = users_ref.where('username', '==', username).limit(1).get()
-        
-        for user in query:
-            return user.to_dict()
+        result = await self.db.execute(select(User).where(User.username == username))
+        return result.scalar_one_or_none()
 
-        return None
-
-    def change_password_func(self, uid: str, current_password: str, new_password: str):
-        """
-            Change password of a user in Firestore.
-            Args:
-                identifier (str): User's email or username.
-                current_password (str): User's current password.
-                new_password (str): User's new password.
-            Returns:
-                dict: Success message if password change is successful.
-        """
-        users_ref = self._db.collection('users').document(uid)
-        user_data = users_ref.get().to_dict()
+    # def change_password_func(self, uid: str, current_password: str, new_password: str):
+    #     """
+    #         Change password of a user in Firestore.
+    #         Args:
+    #             identifier (str): User's email or username.
+    #             current_password (str): User's current password.
+    #             new_password (str): User's new password.
+    #         Returns:
+    #             dict: Success message if password change is successful.
+    #     """
+    #     users_ref = self._db.collection('users').document(uid)
+    #     user_data = users_ref.get().to_dict()
        
-        # Kiểm tra mật khẩu hiện tại
-        if not bcrypt.checkpw(current_password.encode('utf-8'), user_data['password'].encode('utf-8')):
-            raise ValueError("Invalid password")
+    #     # Kiểm tra mật khẩu hiện tại
+    #     if not bcrypt.checkpw(current_password.encode('utf-8'), user_data['password'].encode('utf-8')):
+    #         raise ValueError("Invalid password")
  
-        # Hash mật khẩu mới
+    #     # Hash mật khẩu mới
+    #     new_hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+       
+    #     # Cập nhật mật khẩu mới trong Firestore
+    #     users_ref.update({'password': new_hashed_password})
+       
+    #     return {'message': 'Password changed successfully'}
+    async def change_password_func(self, uid: int, current_password: str, new_password: str):
+        """Đổi mật khẩu cho người dùng"""
+        query = select(User).where(User.id == uid)
+        result = await self.db.execute(query)
+        user = result.scalar_one_or_none()
+
+        if not user or not bcrypt.checkpw(current_password.encode('utf-8'), user.password.encode('utf-8')):
+            raise ValueError("Invalid password")
+
         new_hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-       
-        # Cập nhật mật khẩu mới trong Firestore
-        users_ref.update({'password': new_hashed_password})
-       
+        user.password = new_hashed_password
+        await self.db.commit()
         return {'message': 'Password changed successfully'}
  
-    def get_user_by_token(self, token: str):
+    # def get_user_by_token(self, token: str):
+    #     try:
+    #         payload = jwt.decode(token, "your_jwt_secret", algorithms=["HS256"])
+    #         uid = payload.get("uid")
+    #         if not uid:
+    #             raise ValueError("Invalid token")
+ 
+    #         user_doc = self._db.collection('users').document(uid).get()
+    #         if not user_doc.exists:
+    #             raise ValueError("User does not exist")
+ 
+    #         return user_doc.to_dict()
+    #     except jwt.ExpiredSignatureError:
+    #         raise ValueError("Token has expired")
+    #     except jwt.InvalidTokenError:
+    #         raise ValueError("Invalid token")
+    async def get_user_by_token(self, token: str):
+        """Retrieve user data by token from MySQL.
+
+        Args:
+            token (str): JWT token.
+
+        Returns:
+            User: User data if found, None otherwise.
+        """
         try:
+            # Giải mã token để lấy uid
             payload = jwt.decode(token, "your_jwt_secret", algorithms=["HS256"])
             uid = payload.get("uid")
             if not uid:
                 raise ValueError("Invalid token")
- 
-            user_doc = self._db.collection('users').document(uid).get()
-            if not user_doc.exists:
+
+            # Truy vấn MySQL để lấy user dựa trên uid
+            result = await self.db.execute(select(User).where(User.id == uid))
+            user = result.scalar_one_or_none()  # Lấy một đối tượng User hoặc None nếu không tìm thấy
+
+            if not user:
                 raise ValueError("User does not exist")
- 
-            return user_doc.to_dict()
+
+            return user
         except jwt.ExpiredSignatureError:
             raise ValueError("Token has expired")
         except jwt.InvalidTokenError:
             raise ValueError("Invalid token")
 
+    # async def update_user_token(self, uid: str, token: str):
+    #     """Cập nhật token của user trong Firestore."""
+    #     try:
+    #         user_ref = self._db.collection('users').document(uid)
+    #         user_ref.update({
+    #             'current_token': token  # Lưu token mới
+    #         })
+    #     except Exception as e:
+    #         raise ValueError(f"Could not update token: {str(e)}")
     async def update_user_token(self, uid: str, token: str):
-        """Cập nhật token của user trong Firestore."""
+        """Cập nhật token của user trong MySQL."""
         try:
-            user_ref = self._db.collection('users').document(uid)
-            user_ref.update({
-                'current_token': token  # Lưu token mới
-            })
-        except Exception as e:
+            # Truy vấn để lấy User có id là uid
+            result = await self.db.execute(select(User).where(User.id == uid))
+            user = result.scalar_one_or_none()
+
+            if not user:
+                raise ValueError("User not found")
+
+            # Cập nhật token mới
+            user.current_token = token
+            await self.db.commit()  # Commit thay đổi vào cơ sở dữ liệu
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()  # Rollback nếu có lỗi
             raise ValueError(f"Could not update token: {str(e)}")
     
-    def get_all_topics_and_questions_by_uid(self, uid):
-        """Get all topics and their questions based on user id.
+    # def get_all_topics_and_questions_by_uid(self, uid):
+    #     """Get all topics and their questions based on user id.
  
+    #     Args:
+    #         uid (str): user id.
+ 
+    #     Returns:
+    #         dict: Dictionary with topics as keys and lists of questions as values.
+    #     """
+    #     user_ref = self._db.collection('users').document(uid)
+    #     collections = user_ref.collections()
+    #     all_data = {}
+ 
+    #     for collection in collections:
+    #         topic = collection.id
+    #         documents = collection.stream()
+    #         questions = []
+    #         for doc in documents:
+    #             data = doc.to_dict()
+    #             # question = {
+    #             #     'text': data['question'],
+    #             #     'choices': [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']],
+    #             #     'correct_choice': data['crct_ans']
+    #             # }
+    #             # Kiểm tra loại dữ liệu của 'all_ans'
+    #             if isinstance(data['all_ans'], list):
+    #                 choices = data['all_ans']  # Sử dụng trực tiếp nếu là danh sách
+    #             elif isinstance(data['all_ans'], dict):
+    #                 choices = [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']]
+    #             else:
+    #                 raise ValueError("Unexpected type for 'all_ans'")
+
+    #             question = {
+    #                 'text': data['question'],
+    #                 'choices': choices,
+    #                 'correct_choice': data['crct_ans']
+    #             }
+    #             questions.append(question)
+    #         all_data[topic] = questions
+       
+    #     return all_data
+    async def get_all_topics_and_questions_by_uid(self, uid: int):
+        """Get all topics and their questions based on user id in MySQL.
+
         Args:
-            uid (str): user id.
- 
+            uid (int): user id.
+
         Returns:
             dict: Dictionary with topics as keys and lists of questions as values.
         """
-        user_ref = self._db.collection('users').document(uid)
-        collections = user_ref.collections()
-        all_data = {}
- 
-        for collection in collections:
-            topic = collection.id
-            documents = collection.stream()
-            questions = []
-            for doc in documents:
-                data = doc.to_dict()
-                # question = {
-                #     'text': data['question'],
-                #     'choices': [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']],
-                #     'correct_choice': data['crct_ans']
-                # }
-                # Kiểm tra loại dữ liệu của 'all_ans'
-                if isinstance(data['all_ans'], list):
-                    choices = data['all_ans']  # Sử dụng trực tiếp nếu là danh sách
-                elif isinstance(data['all_ans'], dict):
-                    choices = [data['all_ans']['0'], data['all_ans']['1'], data['all_ans']['2'], data['all_ans']['3']]
-                else:
-                    raise ValueError("Unexpected type for 'all_ans'")
+        try:
+            all_data = {}
 
-                question = {
-                    'text': data['question'],
-                    'choices': choices,
-                    'correct_choice': data['crct_ans']
+            # Truy vấn tất cả các câu hỏi của người dùng có id là `uid`
+            # query = select(Question).where(Question.user_id == uid).options(selectinload(Question.choices))  # Tải sẵn các choices
+            query = (
+                select(Question)
+                .where(Question.user_id == uid)
+                .options(selectinload(Question.choices), selectinload(Question.comments), selectinload(Question.ratings))  # Tải sẵn các choices, comments và ratings
+            )
+            result = await self.db.execute(query)
+            questions_list = result.scalars().all()  # Lấy tất cả các câu hỏi
+
+            if not questions_list:
+                raise ValueError(f"Topic '{topic}' does not exist for user '{uid}'.")
+
+            for question in questions_list:
+                topic = question.topic
+                # Lấy các lựa chọn cho câu hỏi
+                choices: List[Choice] = question.choices
+                choices_text = [choice.choice_text for choice in choices] # Truy cập danh sách các lựa chọn liên quan
+
+                # Lấy các bình luận cho câu hỏi
+                comments: List[Comment] = question.comments
+                comments_text = [comment.comment_text for comment in comments]
+                
+                # Lấy các đánh giá cho câu hỏi
+                ratings: List[Rating] = question.ratings
+                ratings_values = [rating.rating_value for rating in ratings]
+
+                # Tính toán điểm trung bình
+                average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
+
+                question_data = {
+                    'text': question.question_text,
+                    'choices': choices_text,
+                    'correct_choice': question.correct_choice,
+                    'comments': comments_text,  # Thêm bình luận vào dữ liệu câu hỏi
+                    'ratings': ratings_values,    # Thêm đánh giá vào dữ liệu câu hỏi
+                    'average_rating': average_rating
                 }
-                questions.append(question)
-            all_data[topic] = questions
-       
-        return all_data
+                
+                # Thêm câu hỏi vào danh sách câu hỏi của topic
+                if topic not in all_data:
+                    all_data[topic] = []
+                all_data[topic].append(question_data)
+
+            return all_data
+
+        except SQLAlchemyError as e:
+            raise ValueError(f"Could not retrieve data: {str(e)}")
     
-    def delete_topic_by_uid(self, uid, topic):
-        """Delete a topic from Firestore based on user id and topic.
+    # def delete_topic_by_uid(self, uid, topic):
+    #     """Delete a topic from Firestore based on user id and topic.
  
-        Args:
-            uid (str): user id.
-            topic (str): topic name.
+    #     Args:
+    #         uid (str): user id.
+    #         topic (str): topic name.
  
-        Returns:
-            bool: True if deletion is successful, False otherwise.
-        """
+    #     Returns:
+    #         bool: True if deletion is successful, False otherwise.
+    #     """
         
-        doc_ref = self._db.collection('users').document(uid)
-        collection_ref = doc_ref.collection(topic)
+    #     doc_ref = self._db.collection('users').document(uid)
+    #     collection_ref = doc_ref.collection(topic)
  
-        # Kiểm tra xem collection có tồn tại hay không
-        docs = collection_ref.stream()
-        docs_list = list(docs)  # Chuyển iterator thành danh sách để kiểm tra độ dài
+    #     # Kiểm tra xem collection có tồn tại hay không
+    #     docs = collection_ref.stream()
+    #     docs_list = list(docs)  # Chuyển iterator thành danh sách để kiểm tra độ dài
 
-        if docs_list:
-            # Nếu có tài liệu trong collection, tiến hành xóa chúng
+    #     if docs_list:
+    #         # Nếu có tài liệu trong collection, tiến hành xóa chúng
                                         
-            for doc in docs_list:
-                doc.reference.delete()
-            print(f"Collection {topic} has been deleted.")
+    #         for doc in docs_list:
+    #             doc.reference.delete()
+    #         print(f"Collection {topic} has been deleted.")
 
-            return True
-        else:
-            # Nếu không có tài liệu nào, collection không tồn tại hoặc đã rỗng
-            print(f"Collection {topic} does not exist or is already empty.")
-            return False
-   
-    def delete_question_by_uid_and_topic(self, uid, topic, question_id):
-        """Delete a question from Firestore based on user id, topic, and question id.
- 
+    #         return True
+    #     else:
+    #         # Nếu không có tài liệu nào, collection không tồn tại hoặc đã rỗng
+    #         print(f"Collection {topic} does not exist or is already empty.")
+    #         return False
+    async def delete_topic_by_uid(self, uid: int, topic: str) -> bool:
+        """Delete a topic from MySQL based on user id and topic.
+
         Args:
-            uid (str): user id.
+            uid (int): user id.
             topic (str): topic name.
-            question_id (str): question document id.
- 
-        Returns:
-            bool: True if deletion is successful, False otherwise.
-        """
-        # Truy cập collection của topic
-        collection_ref = self._db.collection('users').document(uid).collection(topic)
-        
-        # Kiểm tra xem collection có tồn tại hay không
-        docs = collection_ref.stream()
-        docs_list = list(docs)  # Chuyển iterator thành danh sách để kiểm tra độ dài
 
-        if not docs_list:
-            print(f"Topic {topic} does not exist or is already empty.")
-                                                  
-            return False
-
-        # Truy cập tài liệu cụ thể trong collection
-        doc_ref = collection_ref.document(question_id)
-
-        # Kiểm tra xem question_id có tồn tại hay không
-        if not doc_ref.get().exists:
-            print(f"Question {question_id} does not exist in topic {topic}.")
-            return False
-
-        # Xóa tài liệu cụ thể trong collection
-        doc_ref.delete()
-
-        print(f"Question {question_id} in topic {topic} has been deleted.")
-        return True
-       
-    def delete_user(self, uid):
-        """Delete a user from Firestore based on user id.
- 
-        Args:
-            uid (str): user id.
- 
         Returns:
             bool: True if deletion is successful, False otherwise.
         """
         try:
-            user_ref = self._db.collection('users').document(uid)
-            user_ref.delete()
+            # Kiểm tra xem có câu hỏi nào với user_id và topic không
+            result = await self.db.execute(
+                select(Question).where(Question.user_id == uid, Question.topic == topic)
+            )
+            questions = result.scalars().all()
+
+            if questions:
+                # Nếu có câu hỏi, tiến hành xóa
+                await self.db.execute(
+                    delete(Question).where(Question.user_id == uid, Question.topic == topic)
+                )
+                await self.db.commit()
+                print(f"Topic '{topic}' for user {uid} has been deleted.")
+                return True
+            else:
+                # Nếu không có câu hỏi nào, topic không tồn tại hoặc đã rỗng
+                print(f"Topic '{topic}' for user {uid} does not exist or is already empty.")
+                return False
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            raise ValueError(f"Could not delete topic: {str(e)}")
+   
+    # def delete_question_by_uid_and_topic(self, uid, topic, question_id):
+    #     """Delete a question from Firestore based on user id, topic, and question id.
+ 
+    #     Args:
+    #         uid (str): user id.
+    #         topic (str): topic name.
+    #         question_id (str): question document id.
+ 
+    #     Returns:
+    #         bool: True if deletion is successful, False otherwise.
+    #     """
+    #     # Truy cập collection của topic
+    #     collection_ref = self._db.collection('users').document(uid).collection(topic)
+        
+    #     # Kiểm tra xem collection có tồn tại hay không
+    #     docs = collection_ref.stream()
+    #     docs_list = list(docs)  # Chuyển iterator thành danh sách để kiểm tra độ dài
+
+    #     if not docs_list:
+    #         print(f"Topic {topic} does not exist or is already empty.")
+                                                  
+    #         return False
+
+    #     # Truy cập tài liệu cụ thể trong collection
+    #     doc_ref = collection_ref.document(question_id)
+
+    #     # Kiểm tra xem question_id có tồn tại hay không
+    #     if not doc_ref.get().exists:
+    #         print(f"Question {question_id} does not exist in topic {topic}.")
+    #         return False
+
+    #     # Xóa tài liệu cụ thể trong collection
+    #     doc_ref.delete()
+
+    #     print(f"Question {question_id} in topic {topic} has been deleted.")
+    #     return True
+    async def delete_question_by_uid_and_topic(self, uid: int, topic: str, question_id: int) -> bool:
+        """Delete a question from MySQL based on user id, topic, and question id.
+
+        Args:
+            uid (int): User ID.
+            topic (str): Topic name.
+            question_id (int): Question ID.
+
+        Returns:
+            bool: True if deletion is successful, False otherwise.
+        """
+        try:
+            # Kiểm tra xem câu hỏi với `user_id`, `topic`, và `question_id` có tồn tại không
+            result = await self.db.execute(
+                select(Question).where(
+                    Question.user_id == uid,
+                    Question.topic == topic,
+                    Question.id == question_id
+                )
+            )
+            question = result.scalar_one_or_none()
+
+            if not question:
+                print(f"Question {question_id} does not exist in topic '{topic}' for user {uid}.")
+                return False
+
+            # Nếu câu hỏi tồn tại, tiến hành xóa
+            await self.db.execute(
+                delete(Question).where(
+                    Question.user_id == uid,
+                    Question.topic == topic,
+                    Question.id == question_id
+                )
+            )
+            await self.db.commit()
+            
+            print(f"Question {question_id} in topic '{topic}' for user {uid} has been deleted.")
             return True
-        except Exception as e:
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            raise ValueError(f"Could not delete question: {str(e)}")
+       
+    # def delete_user(self, uid):
+    #     """Delete a user from Firestore based on user id.
+ 
+    #     Args:
+    #         uid (str): user id.
+ 
+    #     Returns:
+    #         bool: True if deletion is successful, False otherwise.
+    #     """
+    #     try:
+    #         user_ref = self._db.collection('users').document(uid)
+    #         user_ref.delete()
+    #         return True
+    #     except Exception as e:
+    #         print(f"Error deleting user: {e}")
+    #         return False
+    async def delete_user(self, uid: int) -> bool:
+        """Delete a user from MySQL based on user id.
+
+        Args:
+            uid (int): User ID.
+
+        Returns:
+            bool: True if deletion is successful, False otherwise.
+        """
+        try:
+            # Kiểm tra xem người dùng có tồn tại không
+            result = await self.db.execute(select(User).where(User.id == uid))
+            user = result.scalar_one_or_none()
+
+            if not user:
+                print(f"User with ID {uid} does not exist.")
+                return False
+
+            # Xóa người dùng
+            await self.db.execute(delete(User).where(User.id == uid))
+            await self.db.commit()
+            
+            print(f"User with ID {uid} has been deleted.")
+            return True
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
             print(f"Error deleting user: {e}")
             return False
 
-    def change_user_info(self, uid, new_email, new_username):
-        """Change user information in Firestore based on user id.
-            Args:
-                uid (str): user id.
-                new_email (str): new email.
-                new_username (str):
-            Returns:
-                bool: True if change is successful, False otherwise.
+    # def change_user_info(self, uid, new_email, new_username):
+    #     """Change user information in Firestore based on user id.
+    #         Args:
+    #             uid (str): user id.
+    #             new_email (str): new email.
+    #             new_username (str):
+    #         Returns:
+    #             bool: True if change is successful, False otherwise.
+    #     """
+    #     try:
+    #         user_ref = self._db.collection('users').document(uid)
+    #         user_ref.update({'email': new_email,
+    #                          'username': new_username})
+    #         return True
+    #     except Exception as e:
+    #         print(f"Error changing user info: {e}")
+    #         return False
+    async def change_user_info(self, uid: int, new_email: str, new_username: str) -> bool:
+        """Change user information in MySQL based on user id.
+
+        Args:
+            uid (int): User ID.
+            new_email (str): New email.
+            new_username (str): New username.
+
+        Returns:
+            bool: True if change is successful, False otherwise.
         """
         try:
-            user_ref = self._db.collection('users').document(uid)
-            user_ref.update({'email': new_email,
-                             'username': new_username})
+            # Cập nhật thông tin người dùng
+            stmt = (
+                update(User).
+                where(User.id == uid).
+                values(email=new_email, username=new_username)
+            )
+            
+            await self.db.execute(stmt)
+            await self.db.commit()
+            
+            print(f"User info for ID {uid} has been updated.")
             return True
-        except Exception as e:
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
             print(f"Error changing user info: {e}")
             return False
 
@@ -573,50 +1073,233 @@ class FirebaseService:
 
         return avatar_url
 
-    def change_topic_name(self, uid: str, old_topic: str, new_topic: str):
-        """Change the name of a topic in Firestore based on user id.
+    # def change_topic_name(self, uid: str, old_topic: str, new_topic: str):
+    #     """Change the name of a topic in Firestore based on user id.
  
+    #     Args:
+    #         uid (str): user id.
+    #         old_topic (str): old topic name.
+    #         new_topic (str): new topic name.
+ 
+    #     Returns:
+    #         bool: True if change is successful, False otherwise.
+    #     """
+    #     # Lấy tài liệu của user
+    #     user_doc_ref = self._db.collection('users').document(uid)
+    #     old_topic_ref = user_doc_ref.collection(old_topic)
+    #     new_topic_ref = user_doc_ref.collection(new_topic)
+ 
+    #     # Lấy tất cả các tài liệu từ collection topic cũ
+    #     documents = old_topic_ref.stream()
+    #     # Sao chép các tài liệu từ topic cũ sang topic mới
+    #     for doc in documents:
+    #         doc_dict = doc.to_dict()
+    #         new_topic_ref.document(doc.id).set(doc_dict)
+ 
+    #     # Xóa collection topic cũ
+    #     if not  self.delete_topic_by_uid(uid, old_topic):
+    #         raise ValueError(f"Topic {old_topic} does not exist or is already empty.")
+    #     return {'status': 200, 'message': f'Topic {old_topic} name changed to {new_topic} successfully'}
+    async def change_topic_name(self, uid: str, old_topic: str, new_topic: str) -> dict:
+        """Change the name of a topic in MySQL based on user id.
+
         Args:
             uid (str): user id.
             old_topic (str): old topic name.
             new_topic (str): new topic name.
- 
+
         Returns:
-            bool: True if change is successful, False otherwise.
+            dict: Status message indicating the result of the operation.
         """
-        # Lấy tài liệu của user
-        user_doc_ref = self._db.collection('users').document(uid)
-        old_topic_ref = user_doc_ref.collection(old_topic)
-        new_topic_ref = user_doc_ref.collection(new_topic)
- 
-        # Lấy tất cả các tài liệu từ collection topic cũ
-        documents = old_topic_ref.stream()
-        # Sao chép các tài liệu từ topic cũ sang topic mới
-        for doc in documents:
-            doc_dict = doc.to_dict()
-            new_topic_ref.document(doc.id).set(doc_dict)
- 
-        # Xóa collection topic cũ
-        if not  self.delete_topic_by_uid(uid, old_topic):
-            raise ValueError(f"Topic {old_topic} does not exist or is already empty.")
-        return {'status': 200, 'message': f'Topic {old_topic} name changed to {new_topic} successfully'}
+        try:
+            # Cập nhật tên topic trong bảng questions
+            stmt = (
+                update(Question)  # Giả sử Question là model tương ứng với bảng questions
+                .where(Question.user_id == uid, Question.topic == old_topic)
+                .values(topic=new_topic)
+            )
+
+            await self.db.execute(stmt)
+            await self.db.commit()
+
+            return {'status': 200, 'message': f'Topic {old_topic} name changed to {new_topic} successfully'}
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            print(f"Error changing topic name: {e}")
+            return {'status': 500, 'message': 'Failed to change topic name'}
    
-    def update_question(self, uid: str, topic: str, question_id: str, new_info: dict):
-        """Update a question in Firestore based on user id, topic, and question id.
+    # def update_question(self, uid: str, topic: str, question_id: str, new_info: dict):
+    #     """Update a question in Firestore based on user id, topic, and question id.
  
+    #     Args:
+    #         uid (str): user id.
+    #         topic (str): topic name.
+    #         question_id (str): question document id.
+    #         new_info (dict): new question information.
+ 
+    #     Returns:
+    #         bool: True if update is successful, False otherwise.
+    #     """
+    #     # Truy cập collection của topic
+    #     question_ref = self._db.collection('users').document(uid).collection(topic).document(question_id)
+       
+    #     if not question_ref.get().exists:
+    #         raise ValueError(f"Question {question_id} does not exist in topic {topic}.")
+    #     question_ref.update(new_info)
+    #     return {"status": "success", "message": f"Question {question_id} of topic {topic} updated successfully"}
+    async def update_question(self, uid: str, topic: str, question_id: str, new_info: dict) -> dict:
+        """Update a question in MySQL based on user id, topic, and question id.
+
         Args:
             uid (str): user id.
             topic (str): topic name.
             question_id (str): question document id.
             new_info (dict): new question information.
- 
+
         Returns:
-            bool: True if update is successful, False otherwise.
+            dict: Status message indicating the result of the operation.
         """
-        # Truy cập collection của topic
-        question_ref = self._db.collection('users').document(uid).collection(topic).document(question_id)
-       
-        if not question_ref.get().exists:
-            raise ValueError(f"Question {question_id} does not exist in topic {topic}.")
-        question_ref.update(new_info)
-        return {"status": "success", "message": f"Question {question_id} of topic {topic} updated successfully"}
+        try:
+            # Cập nhật câu hỏi trong bảng questions
+            stmt = (
+                update(Question)  # Giả sử Question là model tương ứng với bảng questions
+                .where(Question.user_id == uid, Question.topic == topic, Question.id == question_id)  # Giả sử id là khóa chính của bảng
+                .values(**new_info)
+            )
+
+            result = await self.db.execute(stmt)
+            await self.db.commit()
+
+            if result.rowcount == 0:
+                raise ValueError(f"Question {question_id} does not exist in topic {topic}.")
+
+            return {"status": "success", "message": f"Question {question_id} of topic {topic} updated successfully"}
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            print(f"Error updating question: {e}")
+            return {"status": "error", "message": "Failed to update question"}
+    
+    async def add_or_update_rating(self, user_id: int, question_id: int, rating_value: int):
+        # Tìm câu hỏi cụ thể
+        result = await self.db.execute(select(Question).where(Question.id == question_id))
+        question = result.scalars().first()
+        
+        if not question:
+            raise ValueError("Question not found")
+
+        # Kiểm tra xem người dùng đã đánh giá câu hỏi chưa
+        result = await self.db.execute(select(Rating).where(Rating.question_id == question_id, Rating.user_id == user_id))
+        existing_rating = result.scalars().first()
+
+        if existing_rating:
+            # Nếu đã có rating, cập nhật giá trị mới
+            existing_rating.rating_value = rating_value
+        else:
+            # Nếu chưa có rating, tạo mới
+            new_rating = Rating(question_id=question_id, user_id=user_id, rating_value=rating_value, created_at=datetime.datetime.now(datetime.timezone.utc))
+            self.db.add(new_rating)
+
+        # Lưu thay đổi vào DB
+        await self.db.commit()
+
+        # Tính toán điểm trung bình
+        result = await self.db.execute(select(Rating).where(Rating.question_id == question_id))
+        all_ratings = result.scalars().all()
+        average_rating = sum(r.rating_value for r in all_ratings) / len(all_ratings) if all_ratings else 0
+
+        return average_rating, all_ratings  # Trả về điểm trung bình và danh sách rating
+    
+    async def add_comment(self, user_id: int, question_id: int, comment: int):
+        # Tìm câu hỏi cụ thể
+        result = await self.db.execute(select(Question).where(Question.id == question_id))
+        question = result.scalars().first()
+        
+        if not question:
+            raise ValueError("Question not found")
+
+        # Kiểm tra xem người dùng đã đánh giá câu hỏi chưa
+        result = await self.db.execute(select(Comment).where(Comment.question_id == question_id, Comment.user_id == user_id))
+
+        # Nếu chưa có rating, tạo mới
+        new_comment = Comment(question_id=question_id, user_id=user_id, comment_text=comment, created_at=datetime.datetime.now(datetime.timezone.utc))
+        self.db.add(new_comment)
+
+        # Lưu thay đổi vào DB
+        await self.db.commit()
+
+        result = await self.db.execute(select(Comment).where(Comment.question_id == question_id))
+        all_comments = result.scalars().all()
+
+        return new_comment, all_comments  # Trả về bình luận mới tạo và tất cả bình luận cho câu hỏi đó
+    
+    # def aiken_format(self, questions: List[Question]):
+    #     # Chuẩn bị nội dung cho file Aiken
+    #     aiken_format_content = ""
+    #     for question in questions:
+    #         aiken_format_content += f"{question.question_text}\n"
+    #         choices: List[Choice] = self.db.execute(select(Choice).filter(Choice.question_id == question.id)).all()
+    #         for idx, choice in enumerate(choices):
+    #             aiken_format_content += f"{chr(65 + idx)}. {choice.choice_text}\n"
+    #         correct_choice_index = next(
+    #             (idx for idx, choice in enumerate(question.choices) if choice.choice_text == question.correct_choice),
+    #             None
+    #         )
+    #         if correct_choice_index is not None:
+    #             correct_choice = chr(65 + correct_choice_index)
+    #             aiken_format_content += f"ANSWER: {correct_choice}\n\n"
+    async def generate_aiken_content(self, questions: List[Question]) -> str:
+        """Chuyển đổi danh sách các câu hỏi sang định dạng Aiken."""
+        aiken_content = ""
+        for question in questions:
+            aiken_content += f"{question['text']}\n"  # Thêm câu hỏi
+            
+            # Lấy các lựa chọn từ quan hệ `choices`
+            choices = question['choices']
+            print(choices)
+            for idx, choice in enumerate(choices):
+                aiken_content += f"{chr(65 + idx)}. {choice}\n"
+            
+            # Xác định lựa chọn đúng
+            correct_choice_index = next(
+                (idx for idx, choice in enumerate(choices) if choice == question['correct_choice']),
+                None
+            )
+            
+            if correct_choice_index is not None:
+                correct_answer_letter = chr(65 + correct_choice_index)
+                aiken_content += f"ANSWER: {correct_answer_letter}\n\n"
+        
+        return aiken_content
+    
+    async def generate_moodle_xml_content(self, questions: List[dict]) -> str:
+        """Chuyển đổi danh sách các câu hỏi sang định dạng Moodle XML."""
+        
+        quiz = ET.Element("quiz")
+
+        for question in questions:
+            question_elem = ET.SubElement(quiz, "question", type="multichoice")
+
+            # Thêm tên câu hỏi
+            name_elem = ET.SubElement(question_elem, "name")
+            name_text = ET.SubElement(name_elem, "text")
+            name_text.text = question['text']  # Câu hỏi
+
+            # Thêm nội dung câu hỏi
+            questiontext_elem = ET.SubElement(question_elem, "questiontext", format="html")
+            questiontext_text = ET.SubElement(questiontext_elem, "text")
+            questiontext_text.text = f"<![CDATA[{question['text']}]]>"
+
+            # Thêm các lựa chọn
+            for choice in question['choices']:
+                answer_elem = ET.SubElement(question_elem, "answer", fraction="100" if choice == question['correct_choice'] else "0")
+                answer_text = ET.SubElement(answer_elem, "text")
+                answer_text.text = choice
+
+                feedback_elem = ET.SubElement(answer_elem, "feedback")
+                feedback_text = ET.SubElement(feedback_elem, "text")
+                feedback_text.text = "Correct!" if choice == question['correct_choice'] else "Incorrect."
+
+        # Chuyển đổi đối tượng XML thành chuỗi
+        return ET.tostring(quiz, encoding="unicode", method="xml")

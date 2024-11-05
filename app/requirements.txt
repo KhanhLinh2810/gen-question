@@ -29,3 +29,7 @@ PyMuPDF
 pypdf2
 pytesseract
 pillow
+
+sqlalchemy
+aiomysql
+passlib
