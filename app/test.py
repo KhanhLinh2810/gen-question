@@ -314,7 +314,7 @@ async def get_other_user_info(identifier: str, token: str = Depends(JWTBearer(Se
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete('/delete-user')
+@ app.delete('/delete-user')
 async def delete_user(token: str = Depends(JWTBearer(SessionLocal))):
     """Xóa người dùng dựa trên token."""
     async with SessionLocal() as session:
@@ -665,6 +665,58 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(JWT
                 'ratings': [{"user_id": comment.user_id, "rating_value": comment.comment_text} for comment in all_comments]
             }
         }
+
+@ app.delete("/ratings/{rating_id}", response_model=dict)
+async def delete_rating(rating_id: int, token: str = Depends(JWTBearer(SessionLocal))):
+    """
+    API endpoint để xóa rating dựa trên rating_id.
+
+    Args:
+        rating_id (int): ID của rating cần xóa.
+
+    Returns:
+        dict: Thông báo về kết quả xóa.
+    """
+    async with SessionLocal() as session:
+        user_service = MySQLService(session)
+        try:
+            user_data = await user_service.get_user_by_token(token)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        try:
+            result = await user_service.delete_rating(rating_id, user_data.id)
+            return result
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+@ app.delete("/comments/{comment_id}", response_model=dict)
+async def delete_comment(comment_id: int, token: str = Depends(JWTBearer(SessionLocal))):
+    """
+    API endpoint để xóa comment dựa trên comment_id.
+
+    Args:
+        comment_id (int): ID của comment cần xóa.
+
+    Returns:
+        dict: Thông báo về kết quả xóa.
+    """
+    async with SessionLocal() as session:
+        user_service = MySQLService(session)
+        try:
+            user_data = await user_service.get_user_by_token(token)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        try:
+            result = await user_service.delete_comment(comment_id, user_data.id)
+            return result
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 @ app.post('/export-questions')
 async def export_questions(request: ModelExportInput, token: str = Depends(JWTBearer(SessionLocal))):

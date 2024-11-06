@@ -782,16 +782,20 @@ class MySQLService:
                 # Lấy các đánh giá cho câu hỏi
                 ratings: List[Rating] = question.ratings
                 ratings_values = [rating.rating_value for rating in ratings]
+                ratings_data = [{'rating_id': rating.id, 'rating_value': rating.rating_value} for rating in question.ratings]
+                # ratings_data = [{'rating_id': rating['id'], 'rating_value': rating['rating_value']} for rating in question.ratings]
+                # Dưới không subscriptable được
 
                 # Tính toán điểm trung bình
                 average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
 
                 question_data = {
+                    'question_id': question.id,
                     'text': question.question_text,
                     'choices': choices_text,
                     'correct_choice': question.correct_choice,
                     'comments': comments_text,  # Thêm bình luận vào dữ liệu câu hỏi
-                    'ratings': ratings_values,    # Thêm đánh giá vào dữ liệu câu hỏi
+                    'ratings': ratings_data,    # Thêm đánh giá vào dữ liệu câu hỏi
                     'average_rating': average_rating
                 }
                 
@@ -1303,3 +1307,87 @@ class MySQLService:
 
         # Chuyển đổi đối tượng XML thành chuỗi
         return ET.tostring(quiz, encoding="unicode", method="xml")
+    
+    async def delete_rating(self, rating_id: int, uid: int):
+        """
+        Xóa đánh giá nếu người dùng là chủ sở hữu của câu hỏi hoặc của đánh giá.
+
+        Args:
+            uid (int): ID của người dùng yêu cầu xóa đánh giá.
+            rating_id (int): ID của đánh giá cần xóa.
+
+        Returns:
+            str: Thông báo kết quả xóa thành công hoặc lý do thất bại.
+        """
+        try:
+            # Truy vấn để kiểm tra sự tồn tại của rating
+            query = select(Rating).where(Rating.id == rating_id)
+            result = await self.db.execute(query)
+            rating = result.scalar_one_or_none()
+
+            if rating is None:
+                raise ValueError(f"Rating with ID {rating_id} does not exist.")
+            
+            # Kiểm tra quyền sở hữu dựa trên uid của người dùng
+            query_question = select(Question).where(Question.id == rating.question_id)
+            result_question = await self.db.execute(query_question)
+            question = result_question.scalar_one_or_none()
+
+            if not question:
+                return {"detail": "Question không tồn tại."}
+
+            # Xác nhận người dùng là chủ sở hữu của question hoặc của rating
+            if question.user_id != uid and rating.user_id != uid:
+                return {"detail": "Không có quyền xóa đánh giá này."}
+
+            # Xóa rating
+            await self.db.delete(rating)
+            await self.db.commit()
+
+            return {"message": f"Rating with ID {rating_id} has been deleted successfully."}
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            raise ValueError(f"Failed to delete rating: {str(e)}")
+    
+    async def delete_comment(self, comment_id: int, uid: int):
+        """
+        Xóa đánh giá nếu người dùng là chủ sở hữu của câu hỏi hoặc của đánh giá.
+
+        Args:
+            uid (int): ID của người dùng yêu cầu xóa đánh giá.
+            comment_id (int): ID của bình luận cần xóa.
+
+        Returns:
+            str: Thông báo kết quả xóa thành công hoặc lý do thất bại.
+        """
+        try:
+            # Truy vấn để kiểm tra sự tồn tại của rating
+            query = select(Comment).where(Comment.id == comment_id)
+            result = await self.db.execute(query)
+            comment = result.scalar_one_or_none()
+
+            if comment is None:
+                raise ValueError(f"Rating with ID {comment_id} does not exist.")
+            
+            # Kiểm tra quyền sở hữu dựa trên uid của người dùng
+            query_question = select(Question).where(Question.id == comment.question_id)
+            result_question = await self.db.execute(query_question)
+            question = result_question.scalar_one_or_none()
+
+            if not question:
+                return {"detail": "Question không tồn tại."}
+
+            # Xác nhận người dùng là chủ sở hữu của question hoặc của rating
+            if question.user_id != uid and comment.user_id != uid:
+                return {"detail": "Không có quyền xóa đánh giá này."}
+
+            # Xóa rating
+            await self.db.delete(comment)
+            await self.db.commit()
+
+            return {"message": f"Rating with ID {comment_id} has been deleted successfully."}
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            raise ValueError(f"Failed to delete rating: {str(e)}")
