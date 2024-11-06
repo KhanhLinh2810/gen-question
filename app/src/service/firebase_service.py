@@ -617,6 +617,30 @@ class MySQLService:
         except SQLAlchemyError as e:
             raise ValueError(f"Lỗi truy vấn cơ sở dữ liệu: {str(e)}")
     
+    async def get_user_info_from_uid(self, uid: int) -> str:
+        """
+        Lấy thông tin người dùng từ user ID.
+
+        Args:
+            uid (int): ID của người dùng.
+
+        Returns:
+            str: Tên người dùng.
+        """
+        try:
+            # Truy vấn lấy user dựa trên uid
+            query = select(User).where(User.id == uid)
+            result = await self.db.execute(query)
+            user = result.scalars().first()
+            
+            if user:
+                return user
+            else:
+                raise ValueError(f"Không tìm thấy người dùng với ID: {uid}")
+        
+        except SQLAlchemyError as e:
+            raise ValueError(f"Lỗi truy vấn cơ sở dữ liệu: {str(e)}")
+    
     # def change_password_func(self, uid: str, current_password: str, new_password: str):
     #     """
     #         Change password of a user in Firestore.
@@ -1468,3 +1492,31 @@ class MySQLService:
         except SQLAlchemyError as e:
             await self.db.rollback()
             return {"detail": f"Lỗi khi thay đổi tên topic: {str(e)}"}
+    
+    async def update_avatar_url(self, uid: int, avatar_url: str):
+        """
+        Cập nhật avatar URL mới cho người dùng dựa trên user ID.
+
+        Args:
+            uid (int): ID của người dùng.
+            avatar_url (str): Đường dẫn URL của avatar mới.
+
+        Raises:
+            ValueError: Nếu không tìm thấy người dùng hoặc có lỗi truy vấn cơ sở dữ liệu.
+        """
+        try:
+            # Truy vấn lấy user dựa trên uid
+            query = select(User).where(User.id == uid)
+            result = await self.db.execute(query)
+            user = result.scalars().first()
+
+            # Kiểm tra nếu user tồn tại, cập nhật avatar_url
+            if user:
+                user.avatar = avatar_url
+                await self.db.commit()  # Lưu thay đổi vào database
+            else:
+                raise ValueError(f"Không tìm thấy người dùng với ID: {uid}")
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()  # Hoàn tác nếu có lỗi
+            raise ValueError(f"Lỗi truy vấn cơ sở dữ liệu: {str(e)}")

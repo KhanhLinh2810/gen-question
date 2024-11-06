@@ -13,6 +13,7 @@ import os
 import io
 import re
 import asyncio
+from src.service.firebase_service2 import FirebaseService
 from src.service.firebase_service import MySQLService, SessionLocal
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
@@ -57,6 +58,7 @@ def vietnamese_to_english(text):
 
 # FastAPI setup
 app = FastAPI()
+firebase_app = FirebaseService()
 
 # initialize question and ans models
 summarizer = AbstractiveSummarizer()
@@ -829,3 +831,34 @@ async def change_topic_name(request: ChangeTopicRequest, token: str = Depends(JW
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+@ app.post("/upload-avatar")
+async def upload_avatar(file: UploadFile = File(...), token: str = Depends(JWTBearer(SessionLocal))):
+    """Upload avatar for a user and update Firestore.
+
+    Args:
+        file: File object of the avatar image.
+
+    Returns:
+        dict: Information about the uploaded avatar.
+    """
+    async with SessionLocal() as session:
+        user_service = MySQLService(session)
+        try:
+            user_data = await user_service.get_user_by_token(token)
+            # Kiểm tra xem người dùng có tồn tại không
+            # user_ref = firebase_app._db.collection('users').document(user_data.id)
+            # user_doc = user_ref.get()
+            user_doc = await user_service.get_user_info_from_uid(user_data.id)
+            if not user_doc:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            # Upload avatar và nhận URL của ảnh
+            avatar_url = firebase_app.upload_avatar(user_data.id, file)
+
+            # Cập nhật avatar_url vào database MySQL
+            await user_service.update_avatar_url(user_data.id, avatar_url)
+            
+            return {"avatar_url": avatar_url}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
