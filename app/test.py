@@ -166,6 +166,11 @@ class ModelCommentInput(BaseModel):
     question_id: int
     comment: str
 
+class ChangeTopicRequest(BaseModel):
+    uid: Optional[str] = None
+    old_topic: str
+    new_topic: str
+
 @ app.post("/register", response_model=dict)
 async def create_user(user: UserCreate):
     """Tạo người dùng mới."""
@@ -225,7 +230,7 @@ async def login_user(user: UserLogin):
 
         return JSONResponse(content={'status': 200, 'token': token, 'uid': uid})
 
-@app.post('/change-password')
+@ app.post('/change-password')
 async def change_password(user: UserChangePassword, token: str = Depends(JWTBearer(SessionLocal))):
     async with SessionLocal() as session:
         mysql_service = MySQLService(session)
@@ -288,6 +293,26 @@ async def get_all_topics_and_questions(token: str = Depends(JWTBearer(SessionLoc
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+@ app.get('/other-user-all-topics-questions')
+async def get_other_all_topics_and_questions(identifier: str, token: str = Depends(JWTBearer(SessionLocal))):
+    async with SessionLocal() as session:
+        mysql_service = MySQLService(session)
+        try:
+            # Sử dụng dịch vụ MySQL để tìm người dùng theo email
+            user = await mysql_service.get_user_by_email(identifier)
+
+            if not user:  # Nếu không tìm thấy theo email, tìm theo username
+                user = await mysql_service.get_user_by_username(identifier)
+
+            if not user:
+                raise ValueError("Invalid email/username")
+            
+            all_topics_and_questions = await mysql_service.get_all_topics_and_questions_by_uid(user.id)
+            
+            return JSONResponse(content={'status': 200, 'data': all_topics_and_questions})
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
 @ app.get('/other-user-info')
 async def get_other_user_info(identifier: str, token: str = Depends(JWTBearer(SessionLocal))):
     """Lấy thông tin người dùng khác dựa trên email hoặc username."""
@@ -337,7 +362,7 @@ async def delete_user(token: str = Depends(JWTBearer(SessionLocal))):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         
-@app.post('/change-user-info')
+@ app.post('/change-user-info')
 async def change_user_info(user: UserInfo, token: str = Depends(JWTBearer(SessionLocal))):
     """Thay đổi thông tin người dùng."""
     async with SessionLocal() as session:
@@ -361,7 +386,7 @@ async def change_user_info(user: UserInfo, token: str = Depends(JWTBearer(Sessio
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         
-@app.post('/get-question')
+@ app.post('/get-question')
 async def model_inference(request: UserInput, bg_task: BackgroundTasks, token: str = Depends(JWTBearer(SessionLocal))):
     """Process user request
 
@@ -780,3 +805,27 @@ async def export_questions_moodle(request: ModelExportInput, token: str = Depend
     # Trả về file cho người dùng
     return FileResponse(file_path, filename=file_name)
 
+@ app.post("/change-topic-name", response_model=Dict[str, str])
+async def change_topic_name(request: ChangeTopicRequest, token: str = Depends(JWTBearer(SessionLocal))):
+    """API đổi tên topic cho các câu hỏi của người dùng."""
+    async with SessionLocal() as session:
+        user_service = MySQLService(session)
+        try:
+            if not request.uid:
+                user_data = await user_service.get_user_by_token(token)
+                request.uid = user_data.id
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        try:
+            result = await user_service.change_topic_name(
+                uid=request.uid,
+                old_topic=request.old_topic,
+                new_topic=request.new_topic
+            )
+            return result
+
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))

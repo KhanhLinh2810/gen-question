@@ -593,6 +593,30 @@ class MySQLService:
         result = await self.db.execute(select(User).where(User.username == username))
         return result.scalar_one_or_none()
 
+    async def get_username_from_uid(self, uid: int) -> str:
+        """
+        Lấy tên người dùng từ user ID.
+
+        Args:
+            uid (int): ID của người dùng.
+
+        Returns:
+            str: Tên người dùng.
+        """
+        try:
+            # Truy vấn lấy user dựa trên uid
+            query = select(User).where(User.id == uid)
+            result = await self.db.execute(query)
+            user = result.scalars().first()
+            
+            if user:
+                return user.username
+            else:
+                raise ValueError(f"Không tìm thấy người dùng với ID: {uid}")
+        
+        except SQLAlchemyError as e:
+            raise ValueError(f"Lỗi truy vấn cơ sở dữ liệu: {str(e)}")
+    
     # def change_password_func(self, uid: str, current_password: str, new_password: str):
     #     """
     #         Change password of a user in Firestore.
@@ -778,6 +802,21 @@ class MySQLService:
                 # Lấy các bình luận cho câu hỏi
                 comments: List[Comment] = question.comments
                 comments_text = [comment.comment_text for comment in comments]
+                # comments_data = [{
+                #                     'comment_id': comment.id,
+                #                     'user_id': comment.user_id,
+                #                     'comment_value': comment.comments_text
+                #                 }
+                #                 for comment in question.comments]
+                comments_data = []
+                for comment in comments:
+                    username = await self.get_username_from_uid(comment.user_id)  # Lấy tên người dùng từ user_id
+                    comments_data.append({
+                        'comment_id': comment.id,
+                        'user_id': comment.user_id,
+                        'comment_value': comment.comment_text,
+                        'username': username  # Thêm username vào dữ liệu bình luận
+                    })
                 
                 # Lấy các đánh giá cho câu hỏi
                 ratings: List[Rating] = question.ratings
@@ -794,7 +833,7 @@ class MySQLService:
                     'text': question.question_text,
                     'choices': choices_text,
                     'correct_choice': question.correct_choice,
-                    'comments': comments_text,  # Thêm bình luận vào dữ liệu câu hỏi
+                    'comments': comments_data,  # Thêm bình luận vào dữ liệu câu hỏi
                     'ratings': ratings_data,    # Thêm đánh giá vào dữ liệu câu hỏi
                     'average_rating': average_rating
                 }
@@ -1391,3 +1430,41 @@ class MySQLService:
         except SQLAlchemyError as e:
             await self.db.rollback()
             raise ValueError(f"Failed to delete rating: {str(e)}")
+    
+    async def change_topic_name(self, uid: int, old_topic: str, new_topic: str):
+        """API để thay đổi tên topic của các câu hỏi, nếu user là chủ sở hữu của câu hỏi.
+
+        Args:
+            uid (int): ID của người dùng cần xác thực quyền sở hữu câu hỏi.
+            old_topic (str): Tên topic cũ cần đổi.
+            new_topic (str): Tên topic mới sẽ thay thế.
+
+        Returns:
+            dict: Kết quả thông báo thành công hoặc lỗi.
+        """
+        try:
+            # Truy vấn các câu hỏi có `topic` là `old_topic` và `user_id` là `uid`
+            query = (
+                select(Question)
+                .where(Question.topic == old_topic, Question.user_id == uid)
+            )
+            result = await self.db.execute(query)
+            questions_list = result.scalars().all()
+
+            if not questions_list:
+                return {"detail": "Không tìm thấy câu hỏi nào với topic này hoặc người dùng không có quyền."}
+
+            # Cập nhật topic cho các câu hỏi thuộc `old_topic` và có user_id là `uid`
+            update_query = (
+                update(Question)
+                .where(Question.topic == old_topic, Question.user_id == uid)
+                .values(topic=new_topic)
+            )
+            await self.db.execute(update_query)
+            await self.db.commit()
+
+            return {"detail": f"Đã đổi tên topic từ '{old_topic}' thành '{new_topic}' thành công."}
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            return {"detail": f"Lỗi khi thay đổi tên topic: {str(e)}"}
