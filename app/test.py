@@ -173,6 +173,21 @@ class ChangeTopicRequest(BaseModel):
     old_topic: str
     new_topic: str
 
+class All_ans(BaseModel):
+    """All answers model."""
+    ans1: str
+    ans2: str
+    ans3: str
+    ans4: str
+
+class UpdateQuestion(BaseModel):
+    """Update question model."""
+    all_ans: All_ans
+    topic: str
+    context: str
+    correct_choice: str
+    question_text: str
+
 @ app.post("/register", response_model=dict)
 async def create_user(user: UserCreate):
     """Tạo người dùng mới."""
@@ -256,6 +271,51 @@ async def change_password(user: UserChangePassword, token: str = Depends(JWTBear
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         
+@ app.get('/search_questions_by_keyword')
+async def search_questions_by_keyword(keyword: str, token: str = Depends(JWTBearer(SessionLocal))):
+    async with SessionLocal() as session:
+        mysql_service = MySQLService(session)
+        try:
+            search_questions = await mysql_service.search_questions_by_keyword(keyword)
+            
+            return JSONResponse(content={'status': 200, 'data': search_questions})
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@ app.post('/change-question')
+async def update_question(question_id: str, info: UpdateQuestion, token: str = Depends(JWTBearer(SessionLocal))):
+    async with SessionLocal() as session:
+        mysql_service = MySQLService(session)
+        try:
+            user_data = await mysql_service.get_user_by_token(token)
+            if not user_data:
+                raise HTTPException(status_code=404, detail="User not found.")
+            
+            uid = user_data.id
+
+            new_info = {
+                'all_ans': {
+                    '0': info.all_ans.ans1,
+                    '1': info.all_ans.ans2,
+                    '2': info.all_ans.ans3,
+                    '3': info.all_ans.ans4
+                },
+                'context': info.context,
+                'topic': info.topic,
+                'correct_choice': info.correct_choice,
+                'question_text': info.question_text
+            }
+            response = await mysql_service.update_question(uid, question_id, new_info)
+            # Kiểm tra và chuyển đổi các giá trị kiểu set trong response thành list
+            # if isinstance(response, dict):
+            #     for key, value in response.items():
+            #         if isinstance(value, set):
+            #             response[key] = list(value)
+            # return JSONResponse(content={'status': 200, 'data': response})
+            return response
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
 @ app.get('/user-info', response_model=User)
 async def get_user_info(token: str = Depends(JWTBearer(SessionLocal))):
     """Lấy thông tin người dùng từ MySQL dựa trên token."""
@@ -858,7 +918,7 @@ async def upload_avatar(file: UploadFile = File(...), token: str = Depends(JWTBe
 
             # Cập nhật avatar_url vào database MySQL
             await user_service.update_avatar_url(user_data.id, avatar_url)
-            
+
             return {"avatar_url": avatar_url}
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))

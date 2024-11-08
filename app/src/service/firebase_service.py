@@ -10,7 +10,7 @@ from firebase_admin import firestore
 from firebase_admin import credentials
 
 from sqlalchemy.future import select
-from sqlalchemy import delete, update
+from sqlalchemy import delete, update, or_, Table
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker,selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -872,6 +872,78 @@ class MySQLService:
         except SQLAlchemyError as e:
             raise ValueError(f"Could not retrieve data: {str(e)}")
     
+    async def search_questions_by_keyword(self, keyword: str):
+        """
+        Tìm kiếm tất cả các câu hỏi có chứa từ khóa trong Question.context hoặc Question.question_text.
+
+        Args:
+            keyword (str): Từ khóa tìm kiếm.
+
+        Returns:
+            dict: Dictionary với các topic là key và các danh sách câu hỏi là giá trị.
+        """
+        try:
+            all_data = {}
+
+            # Tìm kiếm tất cả các câu hỏi có chứa từ khóa trong `context` hoặc `question_text`
+            query = (
+                select(Question)
+                .where(or_(Question.context.ilike(f"%{keyword}%"), Question.question_text.ilike(f"%{keyword}%")))
+                .options(selectinload(Question.choices), selectinload(Question.comments), selectinload(Question.ratings))
+            )
+            result = await self.db.execute(query)
+            questions_list = result.scalars().all()
+
+            if not questions_list:
+                return {"detail": f"No questions found with keyword '{keyword}'."}
+
+            for question in questions_list:
+                topic = question.topic
+
+                # Lấy các lựa chọn cho câu hỏi
+                choices: List[Choice] = question.choices
+                choices_text = [choice.choice_text for choice in choices]
+
+                # Lấy các bình luận cho câu hỏi
+                comments: List[Comment] = question.comments
+                comments_data = []
+                for comment in comments:
+                    username = await self.get_username_from_uid(comment.user_id)
+                    comments_data.append({
+                        'comment_id': comment.id,
+                        'user_id': comment.user_id,
+                        'comment_value': comment.comment_text,
+                        'username': username
+                    })
+
+                # Lấy các đánh giá cho câu hỏi
+                ratings: List[Rating] = question.ratings
+                ratings_values = [rating.rating_value for rating in ratings]
+                ratings_data = [{'rating_id': rating.id, 'rating_value': rating.rating_value} for rating in ratings]
+
+                # Tính điểm trung bình của đánh giá
+                average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
+
+                question_data = {
+                    'question_id': question.id,
+                    'text': question.question_text,
+                    'choices': choices_text,
+                    'correct_choice': question.correct_choice,
+                    'comments': comments_data,
+                    'ratings': ratings_data,
+                    'average_rating': average_rating
+                }
+
+                # Thêm câu hỏi vào danh sách của topic
+                if topic not in all_data:
+                    all_data[topic] = []
+                all_data[topic].append(question_data)
+
+            return all_data
+
+        except SQLAlchemyError as e:
+            raise ValueError(f"Could not retrieve data: {str(e)}")
+    
     # def delete_topic_by_uid(self, uid, topic):
     #     """Delete a topic from Firestore based on user id and topic.
  
@@ -1215,12 +1287,11 @@ class MySQLService:
     #         raise ValueError(f"Question {question_id} does not exist in topic {topic}.")
     #     question_ref.update(new_info)
     #     return {"status": "success", "message": f"Question {question_id} of topic {topic} updated successfully"}
-    async def update_question(self, uid: str, topic: str, question_id: str, new_info: dict) -> dict:
-        """Update a question in MySQL based on user id, topic, and question id.
+    async def update_question(self, uid: str, question_id: str, new_info: dict) -> dict:
+        """Update a question in MySQL based on user id and question id.
 
         Args:
             uid (str): user id.
-            topic (str): topic name.
             question_id (str): question document id.
             new_info (dict): new question information.
 
@@ -1228,25 +1299,52 @@ class MySQLService:
             dict: Status message indicating the result of the operation.
         """
         try:
-            # Cập nhật câu hỏi trong bảng questions
-            stmt = (
-                update(Question)  # Giả sử Question là model tương ứng với bảng questions
-                .where(Question.user_id == uid, Question.topic == topic, Question.id == question_id)  # Giả sử id là khóa chính của bảng
-                .values(**new_info)
-            )
+            # Tách riêng các trường cho bảng Question và Choice
+            # question_data = {key: value for key, value in new_info.items() if key in Question.__table__.columns.keys()}
+            question_data = {key: value for key, value in new_info.items()}
+            print(question_data)
+            choice_data = new_info.get('all_ans', [])
+            print(choice_data)
 
-            result = await self.db.execute(stmt)
-            await self.db.commit()
+            # Cập nhật câu hỏi trong bảng Question
+            if question_data:
+                stmt = (
+                    update(Question)
+                    .where(Question.user_id == uid, Question.id == question_id)
+                    # .values(**question_data)
+                    .values(
+                        context = question_data.get('context'),
+                        topic = question_data.get('topic'),
+                        correct_choice = question_data.get('correct_choice'),
+                        question_text = question_data.get('question_text')
+                    )
+                )
+                result = await self.db.execute(stmt)
 
-            if result.rowcount == 0:
-                raise ValueError(f"Question {question_id} does not exist in topic {topic}.")
+                # Kiểm tra xem câu hỏi có tồn tại không
+                if result.rowcount == 0:
+                    raise ValueError(f"Question {question_id} does not exist.")
 
-            return {"status": "success", "message": f"Question {question_id} of topic {topic} updated successfully"}
+            # Nếu có dữ liệu cho bảng Choice, cập nhật choices
+            if choice_data:
+                # Xóa các choices hiện tại
+                await self.db.execute(
+                    delete(Choice).where(Choice.question_id == question_id)
+                )
+
+                # Thêm các lựa chọn mới
+                for choice_text in choice_data.values():
+                    new_choice = Choice(question_id=question_id, choice_text=choice_text)
+                    self.db.add(new_choice)
+
+                await self.db.commit()
+
+            return {"status": "success", "message": f"Question {question_id} updated successfully"}
 
         except SQLAlchemyError as e:
             await self.db.rollback()
             print(f"Error updating question: {e}")
-            return {"status": "error", "message": "Failed to update question"}
+            return {"status": "error", "message": {e}}
     
     async def add_or_update_rating(self, user_id: int, question_id: int, rating_value: int):
         # Tìm câu hỏi cụ thể
