@@ -1118,20 +1118,38 @@ class MySQLService:
             user = result.scalar_one_or_none()
 
             if not user:
-                print(f"User with ID {uid} does not exist.")
-                return False
+                raise ValueError(f"User with ID {uid} does not exist.")
+
+            # Lấy người dùng theo UID
+            stmt = select(User).where(User.id == uid)
+            result = await self.db.execute(stmt)
+            user = result.scalar_one_or_none()
+
+            if not user:
+                raise ValueError(f"User not found")
+
+            # Lấy tất cả các câu hỏi của người dùng
+            stmt = select(Question).where(Question.user_id == uid)
+            result = await self.db.execute(stmt)
+            questions = result.scalars().all()
+
+            # Xóa tất cả các câu hỏi và các liên kết liên quan
+            for question in questions:
+                await self.db.execute(delete(Choice).where(Choice.question_id == question.id))
+                await self.db.execute(delete(Comment).where(Comment.question_id == question.id))
+                await self.db.execute(delete(Rating).where(Rating.question_id == question.id))
+                await self.db.delete(question)
 
             # Xóa người dùng
-            await self.db.execute(delete(User).where(User.id == uid))
-            await self.db.commit()
-            
-            print(f"User with ID {uid} has been deleted.")
-            return True
+            await self.db.delete(user)
 
+            # Lưu thay đổi
+            await self.db.commit()
+
+            return {"status": "success", "message": f"User {uid} and all related data deleted successfully"}
         except SQLAlchemyError as e:
             await self.db.rollback()
-            print(f"Error deleting user: {e}")
-            return False
+            return ValueError(f"Error deleting user: {e}")
 
     # def change_user_info(self, uid, new_email, new_username):
     #     """Change user information in Firestore based on user id.
@@ -1618,3 +1636,89 @@ class MySQLService:
         except SQLAlchemyError as e:
             await self.db.rollback()  # Hoàn tác nếu có lỗi
             raise ValueError(f"Lỗi truy vấn cơ sở dữ liệu: {str(e)}")
+    
+    async def delete_user_question(self, uid: int, question_id: int) -> dict:
+        """
+        Xóa câu hỏi của người dùng cùng với các liên kết liên quan.
+
+        Args:
+            uid (int): ID của người dùng.
+            question_id (int): ID của câu hỏi.
+
+        Returns:
+            dict: Trạng thái của thao tác xóa.
+        """
+        try:
+            # Kiểm tra câu hỏi có tồn tại và thuộc về người dùng
+            stmt = select(Question).where(Question.user_id == uid, Question.id == question_id)
+            result = await self.db.execute(stmt)
+            question = result.scalar_one_or_none()
+
+            if not question:
+                raise ValueError(f"Question not found or unauthorized")
+
+            # Xóa tất cả Choice liên quan đến câu hỏi
+            await self.db.execute(delete(Choice).where(Choice.question_id == question_id))
+            
+            # Xóa tất cả Comment liên quan đến câu hỏi
+            await self.db.execute(delete(Comment).where(Comment.question_id == question_id))
+            
+            # Xóa tất cả Rating liên quan đến câu hỏi
+            await self.db.execute(delete(Rating).where(Rating.question_id == question_id))
+            
+            # Xóa câu hỏi sau khi xóa các liên kết liên quan
+            await self.db.delete(question)
+            
+            # Lưu thay đổi
+            await self.db.commit()
+
+            return {"status": "success", "message": f"Question {question_id} and related data deleted successfully"}
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            print(f"Error deleting question: {e}")
+            raise ValueError(f"Failed to delete question: {e}")
+    
+    async def delete_user_topic(self, uid: int, topic: str) -> dict:
+        """
+        Xóa tất cả các câu hỏi của người dùng với topic chỉ định và các liên kết liên quan.
+
+        Args:
+            uid (int): ID của người dùng.
+            topic (str): Tên topic của câu hỏi.
+
+        Returns:
+            dict: Trạng thái của thao tác xóa.
+        """
+        try:
+            # Lấy tất cả câu hỏi có cùng topic của người dùng
+            stmt = select(Question).where(Question.user_id == uid, Question.topic == topic)
+            result = await self.db.execute(stmt)
+            questions = result.scalars().all()
+
+            if not questions:
+                raise ValueError(f"No questions found with the specified topic for the user")
+
+            # Xóa tất cả liên kết liên quan đến từng câu hỏi
+            for question in questions:
+                # Xóa Choices liên quan đến câu hỏi
+                await self.db.execute(delete(Choice).where(Choice.question_id == question.id))
+                
+                # Xóa Comments liên quan đến câu hỏi
+                await self.db.execute(delete(Comment).where(Comment.question_id == question.id))
+                
+                # Xóa Ratings liên quan đến câu hỏi
+                await self.db.execute(delete(Rating).where(Rating.question_id == question.id))
+
+                # Xóa câu hỏi
+                await self.db.delete(question)
+
+            # Lưu thay đổi
+            await self.db.commit()
+
+            return {"status": "success", "message": f"All questions with topic '{topic}' for user {uid} deleted successfully"}
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            print(f"Error deleting questions by topic: {e}")
+            raise ValueError(f"Failed to delete questions by topic: {e}")

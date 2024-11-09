@@ -749,7 +749,7 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(JWT
             'data': {
                 'question_id': request.question_id,
                 'new_comment': new_comment,
-                'ratings': [{"user_id": comment.user_id, "rating_value": comment.comment_text} for comment in all_comments]
+                'ratings': [{"user_id": comment.user_id, "comment_text": comment.comment_text} for comment in all_comments]
             }
         }
 
@@ -920,5 +920,43 @@ async def upload_avatar(file: UploadFile = File(...), token: str = Depends(JWTBe
             await user_service.update_avatar_url(user_data.id, avatar_url)
 
             return {"avatar_url": avatar_url}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@ app.delete("/delete-user-question")
+async def api_delete_user_question(question_id: int, token: str = Depends(JWTBearer(SessionLocal))):
+    """
+    Endpoint API để xóa câu hỏi của người dùng cùng các liên kết liên quan.
+
+    Args:
+        question_id (int): ID của câu hỏi.
+
+    Returns:
+        dict: Trạng thái của thao tác xóa.
+    """
+    async with SessionLocal() as session:
+        user_service = MySQLService(session)
+        try:
+            user_data = await user_service.get_user_by_token(token)
+            return await user_service.delete_user_question(user_data.id, question_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@ app.delete("/delete-user-topic")
+async def api_delete_user_topic(topic: str, token: str = Depends(JWTBearer(SessionLocal))):
+    """
+    Endpoint API để xóa tất cả các câu hỏi của người dùng với topic chỉ định.
+
+    Args:
+        topic (str): Tên topic của câu hỏi.
+
+    Returns:
+        dict: Trạng thái của thao tác xóa.
+        """
+    async with SessionLocal() as session:
+        user_service = MySQLService(session)
+        try:
+            user_data = await user_service.get_user_by_token(token)
+            return await user_service.delete_user_topic(user_data.id, topic)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
