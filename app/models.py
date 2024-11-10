@@ -27,6 +27,7 @@ class Question(Base):
     context = Column(Text, nullable=False)  # Nội dung câu hỏi
     question_text = Column(Text, nullable=False)
     correct_choice = Column(String(255), nullable=False)
+    tags = Column(Text, nullable=True)
     
     user = relationship("User", back_populates="questions")
     choices = relationship("Choice", back_populates="question", cascade="all, delete")

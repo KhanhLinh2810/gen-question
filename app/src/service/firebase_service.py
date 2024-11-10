@@ -270,9 +270,11 @@ class MySQLService:
     #         })
     #     # Trả về danh sách results sau khi hoàn tất quá trình lưu trữ
     #     return results
-    async def send_results_to_db(self, uid: str, topic: str, questions: list, crct_ans: list, all_ans: list, context: str):
+    async def send_results_to_db(self, uid: str, topic: str, questions: list, crct_ans: list, all_ans: list, context: str, tags: list):
         """Gửi câu hỏi đã tạo vào cơ sở dữ liệu MySQL"""
         self.__validate(questions=questions, crct_ans=crct_ans, all_ans=all_ans)
+
+        tags_str = ",".join(tags)  # Chuyển danh sách tags thành chuỗi phân cách bởi dấu phẩy
 
         query = select(Question).where(Question.user_id == uid, Question.topic == topic)
         result = await self.db.execute(query)
@@ -290,7 +292,8 @@ class MySQLService:
                 topic=english_to_vietnamese(topic),
                 question_text=english_to_vietnamese(question),
                 context=english_to_vietnamese(context),
-                correct_choice=english_to_vietnamese(crct_ans[idx])
+                correct_choice=english_to_vietnamese(crct_ans[idx]),
+                tags=tags_str
             )
             self.db.add(new_question)
             await self.db.flush()  # Để lấy ID của câu hỏi
@@ -315,6 +318,7 @@ class MySQLService:
                 'question_text': new_question.question_text,
                 'choices': choices,
                 'correct_choice': new_question.correct_choice,
+                'tags': new_question.tags,
                 'duplicate_info': duplicate_info
             })
 
@@ -419,6 +423,7 @@ class MySQLService:
                 'text': question.question_text,
                 'choices': choices_text,
                 'correct_choice': question.correct_choice,
+                'tags': question.tags,
                 'comments': comments_text,  # Thêm bình luận vào dữ liệu câu hỏi
                 'ratings': ratings_values,    # Thêm đánh giá vào dữ liệu câu hỏi
                 'average_rating': average_rating
@@ -857,6 +862,7 @@ class MySQLService:
                     'text': question.question_text,
                     'choices': choices_text,
                     'correct_choice': question.correct_choice,
+                    'tags': question.tags,
                     'comments': comments_data,  # Thêm bình luận vào dữ liệu câu hỏi
                     'ratings': ratings_data,    # Thêm đánh giá vào dữ liệu câu hỏi
                     'average_rating': average_rating
@@ -929,6 +935,7 @@ class MySQLService:
                     'text': question.question_text,
                     'choices': choices_text,
                     'correct_choice': question.correct_choice,
+                    'tags': question.tags,
                     'comments': comments_data,
                     'ratings': ratings_data,
                     'average_rating': average_rating
@@ -1334,7 +1341,8 @@ class MySQLService:
                         context = question_data.get('context'),
                         topic = question_data.get('topic'),
                         correct_choice = question_data.get('correct_choice'),
-                        question_text = question_data.get('question_text')
+                        question_text = question_data.get('question_text'),
+                        tags = question_data.get('tags')
                     )
                 )
                 result = await self.db.execute(stmt)

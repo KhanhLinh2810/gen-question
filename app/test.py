@@ -48,6 +48,7 @@ class ModelInput(BaseModel):
     uid: Optional[str] = None
     context: str
     name: str
+    tags: List[str] = []
 
 #Translator vietnamese<->english
 def vietnamese_to_english(text):
@@ -107,7 +108,7 @@ async def process_request(request: ModelInput):
             await mysql_service.update_generated_status(request, False)
             
             # Gọi hàm để gửi kết quả về Firestore
-            results = await mysql_service.send_results_to_db(uid=request.uid, topic=request.name, questions=questions, crct_ans=crct_ans, all_ans=all_ans, context=request.context)
+            results = await mysql_service.send_results_to_db(uid=request.uid, topic=request.name, questions=questions, crct_ans=crct_ans, all_ans=all_ans, context=request.context, tags=request.tags)
             return results
 
         except Exception as e:
@@ -151,6 +152,7 @@ class UserInfo(BaseModel):
 class UserInput(BaseModel):
     context: str
     name: str
+    tags: List[str] = []
 
 class ModelExportInput(BaseModel):
     """Request model for exporting questions."""
@@ -187,6 +189,7 @@ class UpdateQuestion(BaseModel):
     context: str
     correct_choice: str
     question_text: str
+    tags: List[str] = []
 
 @ app.post("/register", response_model=dict)
 async def create_user(user: UserCreate):
@@ -303,7 +306,8 @@ async def update_question(question_id: str, info: UpdateQuestion, token: str = D
                 'context': info.context,
                 'topic': info.topic,
                 'correct_choice': info.correct_choice,
-                'question_text': info.question_text
+                'question_text': info.question_text,
+                'tags': info.tags
             }
             response = await mysql_service.update_question(uid, question_id, new_info)
             # Kiểm tra và chuyển đổi các giá trị kiểu set trong response thành list
@@ -453,7 +457,7 @@ async def model_inference(request: UserInput, bg_task: BackgroundTasks, token: s
     """Process user request
 
     Args:
-        request (ModelInput): request model
+        request (UserInput): request model
         bg_task (BackgroundTasks): run process_request() on other thread
         and respond to request
 
@@ -516,7 +520,7 @@ async def get_questions(request: UserInput, bg_task: BackgroundTasks, token: str
         # Tạo các tác vụ không đồng bộ cho mỗi câu
         async def process_sentence(sentence):
             try:
-                result = await process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
+                result = await process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name, tags=model_input.tags))
                 return result, None
             except Exception as e:
                 return None, {'sentence': sentence, 'error': str(e)}
@@ -542,7 +546,7 @@ async def get_questions(request: UserInput, bg_task: BackgroundTasks, token: str
         return JSONResponse(content=response_content)
 
 @ app.post("/upload_pdf_to_questions")
-async def upload_pdf(file: UploadFile = File(...), token: str = Depends(JWTBearer(SessionLocal))) -> Dict[str, str]:
+async def upload_pdf(tags: List[str], file: UploadFile = File(...), token: str = Depends(JWTBearer(SessionLocal))) -> Dict[str, str]:
     """Upload a PDF file, extract text, split it into sentences, and process each sentence asynchronously.
 
     Args:
@@ -585,12 +589,12 @@ async def upload_pdf(file: UploadFile = File(...), token: str = Depends(JWTBeare
             sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
 
             # Chuẩn bị dữ liệu đầu vào
-            model_input = ModelInput(context=text, name=topic, uid=user_data.id)
+            model_input = ModelInput(context=text, name=topic, uid=user_data.id, tags=tags)
 
             # Tạo các tác vụ không đồng bộ cho mỗi câu
             async def process_sentence(sentence):
                 try:
-                    result = await process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
+                    result = await process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name, tags=model_input.tags))
                     return result, None
                 except Exception as e:
                     return None, {'sentence': sentence, 'error': str(e)}
@@ -616,7 +620,7 @@ async def upload_pdf(file: UploadFile = File(...), token: str = Depends(JWTBeare
             raise HTTPException(status_code=500, detail=f"Error processing PDF: {e}")
 
 @ app.post("/generate_questions_from_image")
-async def generate_questions_from_image(file: UploadFile = File(...), token: str = Depends(JWTBearer(SessionLocal))):
+async def generate_questions_from_image(tags: List[str],file: UploadFile = File(...), token: str = Depends(JWTBearer(SessionLocal))):
     async with SessionLocal() as session:
         user_service = MySQLService(session)
         try:
@@ -648,12 +652,12 @@ async def generate_questions_from_image(file: UploadFile = File(...), token: str
             sentences = re.split(sentence_delimiters, combined_text)
             sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
 
-            model_input = ModelInput(context=combined_text, name=topic, uid=user_data.id)
+            model_input = ModelInput(context=combined_text, name=topic, uid=user_data.id, tags=tags)
 
             # Sử dụng asyncio.gather để xử lý từng câu không đồng bộ
             async def process_sentence(sentence):
                 try:
-                    result = await process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
+                    result = await process_request(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name, tags=model_input.tags))
                     return result, None
                 except Exception as e:
                     return None, {'sentence': sentence, 'error': str(e)}
