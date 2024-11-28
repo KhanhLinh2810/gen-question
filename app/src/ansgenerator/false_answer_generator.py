@@ -34,40 +34,37 @@ class FalseAnswerGenerator:
         self._sentence_model = SentenceTransformer('all-MiniLM-L12-v2')
 
     def __init_sense2vec(self):
-            """Initialize word vectors to get similar words.
+        """Initialize word vectors to get similar words.
 
-            https://github.com/explosion/sense2vec
-            """
+        https://github.com/explosion/sense2vec
+        """
+        if not os.path.isdir(os.getcwd() + '/s2v_old'):
+            s2v_url = "https://github.com/explosion/sense2vec/releases/download/"
+            s2v_ver_url = s2v_url + "v1.0.0/s2v_reddit_2015_md.tar.gz"
 
-            if not os.path.isdir(os.getcwd() + '/s2v_old'):
-                s2v_url = "https://github.com/explosion/sense2vec/releases/download/"
-                s2v_ver_url = s2v_url + "v1.0.0/s2v_reddit_2015_md.tar.gz"
+            with urllib.request.urlopen(s2v_ver_url) as req:
+                # save downloaded to a temp file first
+                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                    temp_file.write(req.read())
+                    temp_file_path = temp_file.name
 
-                with urllib.request.urlopen(s2v_ver_url) as req:
-                    # save downloaded to a temp file first
+            with tarfile.open(temp_file_path, mode='r:gz') as file:
+                def is_within_directory(directory, target):
+                    abs_directory = os.path.abspath(directory)
+                    abs_target = os.path.abspath(target)
+                    prefix = os.path.commonprefix([abs_directory, abs_target])
+                    return prefix == abs_directory
 
-                    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                        temp_file.write(req.read())
-                        temp_file_path = temp_file.name
+                def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+                    for member in tar.getmembers():
+                        member_path = os.path.join(path, member.name)
+                        if not is_within_directory(path, member_path):
+                            raise Exception("Attempted Path Traversal in Tar File")
+                    tar.extractall(path, members, numeric_owner=numeric_owner)
 
-                with tarfile.open(temp_file_path, mode='r:gz') as file:
-                    def is_within_directory(directory, target):
-                        abs_directory = os.path.abspath(directory)
-                        abs_target = os.path.abspath(target)
-                        prefix = os.path.commonprefix([abs_directory, abs_target])
-                        return prefix == abs_directory
+                safe_extract(file)
 
-                    def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
-                        for member in tar.getmembers():
-                            member_path = os.path.join(path, member.name)
-                            if not is_within_directory(path, member_path):
-                                raise Exception("Attempted Path Traversal in Tar File")
-                        tar.extractall(path, members, numeric_owner=numeric_owner)
-
-                    safe_extract(file)
-
-            self._s2v = Sense2Vec().from_disk("s2v_old")
-
+        self._s2v = Sense2Vec().from_disk("s2v_old")
 
     def __get_embedding(self, answer, distractors):
         """Returns sentence model embedding of answer and distractors.
@@ -103,12 +100,12 @@ class FalseAnswerGenerator:
         return filtered_dist
 
     def __mmr(self, doc_embedding, word_embedding, words, diversity=0.9):
-        """Word diversity using MMR - Maximal Marginal Relevence.
+        """Word diversity using MMR - Maximal Marginal Relevance.
 
         Args:
             doc_embedding (list[str]): sentence embedding of correct answer.
             word_embedding (list[str]): sentence embedding of false answer.
-            words (list[str]): flase answers.
+            words (list[str]): false answers.
             diversity (float, optional): diversity coefficient. Defaults to 0.9.
 
         Returns:
@@ -118,18 +115,19 @@ class FalseAnswerGenerator:
         word_doc_similarity = cosine_similarity(word_embedding, doc_embedding)
         word_similarity = cosine_similarity(word_embedding)
 
-        kw_idx = [np.argmax(word_doc_similarity)]
+        kw_idx = [np.argmax(word_doc_similarity)]  # NumPy 2.0.2 vẫn hỗ trợ np.argmax()
         dist_idx = [i for i in range(len(words)) if i != kw_idx[0]]
 
         for _ in range(3):
             dist_similarities = word_doc_similarity[dist_idx, :]
             target_similarities = np.max(
-                word_similarity[dist_idx][:, kw_idx], axis=1)
+                word_similarity[dist_idx][:, kw_idx], axis=1
+            )
 
             # calculate MMR
             mmr = (1 - diversity) * dist_similarities - \
                 diversity * target_similarities.reshape(-1, 1)
-            mmr_idx = dist_idx[np.argmax(mmr)]
+            mmr_idx = dist_idx[np.argmax(mmr)]  # NumPy vẫn hỗ trợ np.argmax()
 
             # update kw
             kw_idx.append(mmr_idx)
@@ -162,8 +160,7 @@ class FalseAnswerGenerator:
             # if answers are numbers then we don't need to filter
             if query_al.split('|')[1] == 'CARDINAL':
                 return formatted_string[:4]
-            # else filter because sometimes similar words will be US, U.S, USA, AMERICA..
-            #  bt all are same no?
+            # else filter because sometimes similar words will be US, U.S, USA, AMERICA...
             return self.filter_output(query, formatted_string)
         except AssertionError:
             return None
@@ -171,14 +168,13 @@ class FalseAnswerGenerator:
     def get_output(self, filtered_kws):
         """Generate false answers for whole context.
 
-        Filter out keywords that doesn't generate 3 false answers.
+        Filter out keywords that don't generate 3 false answers.
 
         Args:
             filtered_kws (list(str)): list of keywords
 
         Returns:
-            tuple(list(str), list(list(str))): tuple of, list of correct answers and list of
-            list of all answers.
+            tuple(list(str), list(list(str))): tuple of correct answers and list of all answers.
         """
         crct_ans = []
         all_answers = []
