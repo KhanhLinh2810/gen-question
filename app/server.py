@@ -9,7 +9,7 @@ def start_server():
     subprocess.Popen(uvicorn_command, shell=True)
     print("Server đang chạy...")
 
-# Hàm gửi yêu cầu POST đến /login
+# Hàm gửi yêu cầu POST đến /login với thời gian chờ là 8 giây
 def login():
     url = 'http://103.138.113.68/login'
     headers = {
@@ -22,8 +22,12 @@ def login():
     }
 
     try:
-        response = requests.post(url, json=data, headers=headers)
+        # Thêm tham số timeout để chờ 8 giây
+        response = requests.post(url, json=data, headers=headers, timeout=8)
         return response.status_code
+    except requests.exceptions.Timeout:
+        print("Yêu cầu đăng nhập bị timeout sau 8 giây.")
+        return None
     except requests.exceptions.RequestException as e:
         print(f"Lỗi khi gửi yêu cầu đăng nhập: {e}")
         return None
