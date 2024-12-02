@@ -12,7 +12,9 @@ class AbstractiveSummarizer(Model):
 
     def __init__(self):
         """Initialize corpus summarizer."""
-        super().__init__(model_name='t5-base', path_id='1-50SZ_WIHX4A6mkpsz-t0EAF_VhtHb-9')
+        # NOTE: Default
+        # super().__init__(model_name='t5-base', path_id='1-50SZ_WIHX4A6mkpsz-t0EAF_VhtHb-9')
+        super().__init__(model_name='t5-small', path_id='1ODslrpbSXB0HWAGymYmyJn5nFO8GELpd')
 
     def preprocess_input(self, model_input):
         """Process model input.
