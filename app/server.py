@@ -32,6 +32,8 @@ def login():
         return None
     except requests.exceptions.RequestException as e:
         print(f"Lỗi khi gửi yêu cầu đăng nhập: {e}")
+        subprocess.call(['pkill', '-f', 'uvicorn'])
+        start_server()
         return None
 
 # Hàm để kiểm tra và khởi động lại server nếu cần thiết
@@ -41,13 +43,14 @@ def monitor_and_restart():
         
         # Gửi yêu cầu POST đến /login
         login_response = login()
+        print(login_response)
         
         if login_response != 200 and login_response is not None:
             print(f"Đăng nhập thất bại (HTTP code: {login_response}). Đang khởi động lại server...")
             
             # Dừng ứng dụng Uvicorn và khởi động lại server
-            subprocess.call(['pkill', '-f', 'uvicorn'])
-            start_server()
+            # subprocess.call(['pkill', '-f', 'uvicorn'])
+            # start_server()
 
         # Kiểm tra lại sau mỗi 80 giây
         time.sleep(80)
