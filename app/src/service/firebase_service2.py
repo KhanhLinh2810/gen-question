@@ -29,7 +29,8 @@ import xml.etree.ElementTree as ET
 import logging
 logging.basicConfig(level=logging.INFO)
 
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'D:/GR2/quizzzy2/quizzzy-backend/app/secret/serviceAccountKey.json'
+# os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'D:/GR2/quizzzy2/quizzzy-backend/app/secret/serviceAccountKey.json'
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = '/root/mcq_be/quizzzy-backend2/app/secret/serviceAccountKey.json'
 
 class FirebaseService:
     """FirebaseService"""
@@ -38,7 +39,9 @@ class FirebaseService:
     def __init__(self):
         """Initialize firebase firestore client."""
         firebase_admin.initialize_app(
-            credentials.Certificate("secret/serviceAccountKey.json"))
+            # credentials.Certificate("secret/serviceAccountKey.json"))
+            credentials.Certificate('/root/mcq_be/quizzzy-backend2/app/secret/serviceAccountKey.json')
+        )
         self._db = firestore.client()
     
     def upload_avatar(self, uid: str, file):

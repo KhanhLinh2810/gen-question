@@ -29,7 +29,7 @@ import xml.etree.ElementTree as ET
 import logging
 logging.basicConfig(level=logging.INFO)
 
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'D:/GR2/quizzzy2/quizzzy-backend/app/secret/serviceAccountKey.json'
+# os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'D:/GR2/quizzzy2/quizzzy-backend/app/secret/serviceAccountKey.json'
 
 
 def english_to_vietnamese(text):
