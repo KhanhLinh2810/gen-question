@@ -43,10 +43,10 @@ def monitor_and_restart():
             subprocess.call(['pkill', '-f', 'uvicorn'])
             start_server()
 
-        # Kiểm tra lại sau mỗi 20 giây
-        time.sleep(20)
+        # Kiểm tra lại sau mỗi 80 giây
+        time.sleep(80)
 
 if __name__ == '__main__':
     start_server()  # Bắt đầu chạy server
-    time.sleep(30)  # Chờ 30 giây trước khi tiếp tục
+    time.sleep(80)  # Chờ 80 giây trước khi tiếp tục
     monitor_and_restart()  # Bắt đầu theo dõi và khởi động lại server nếu cần
