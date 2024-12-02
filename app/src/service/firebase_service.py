@@ -521,7 +521,7 @@ class MySQLService:
     #     # Generate a JWT token
     #     token = jwt.encode({
     #         'uid': user_data['uid'],
-    #         'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+    #         'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=3)
     #     }, 'your_jwt_secret', algorithm='HS256')
         
     #     return token, user_data['uid']
@@ -537,7 +537,7 @@ class MySQLService:
         # Generate a JWT token
         token = jwt.encode({
             'uid': user.id,
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=3)
         }, 'your_jwt_secret', algorithm='HS256')
         
         return token, user.id
