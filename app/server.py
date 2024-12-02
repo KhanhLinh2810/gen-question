@@ -27,6 +27,8 @@ def login():
         return response.status_code
     except requests.exceptions.Timeout:
         print("Yêu cầu đăng nhập bị timeout sau 8 giây.")
+        subprocess.call(['pkill', '-f', 'uvicorn'])
+        start_server()
         return None
     except requests.exceptions.RequestException as e:
         print(f"Lỗi khi gửi yêu cầu đăng nhập: {e}")
