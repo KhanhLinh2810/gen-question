@@ -727,12 +727,23 @@ async def rate_questions(request: ModelRatingInput, token: str = Depends(JWTBear
         # Gọi hàm để thêm hoặc cập nhật rating
         average_rating, ratings = await user_service.add_or_update_rating(request.uid, request.question_id, request.rate)
 
+        ratings_data = []
+        for rating in ratings:
+            username = await user_service.get_username_from_uid(rating.user_id)  # Lấy tên người dùng từ user_id
+            ratings_data.append({
+                'rating_id': rating.id, 
+                'rating_value': rating.rating_value, 
+                'created_at': rating.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                'username': username  # Thêm username vào dữ liệu bình luận
+            })
+
         return {
             'status': 200,
             'data': {
                 'question_id': request.question_id,
                 'average_rating': average_rating,
-                'ratings': [{"user_id": r.user_id, "rating_value": r.rating_value, "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S")} for r in ratings]
+                'ratings': ratings_data
+                # 'ratings': [{"user_id": r.user_id, "rating_value": r.rating_value, "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S")} for r in ratings]
             }
         }
 
@@ -750,12 +761,24 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(JWT
         # Gọi hàm để thêm hoặc cập nhật rating
         new_comment, all_comments = await user_service.add_comment(request.uid, request.question_id, request.comment)
 
+        comments_data = []
+        for comment in all_comments:
+            username = await user_service.get_username_from_uid(comment.user_id)  # Lấy tên người dùng từ user_id
+            comments_data.append({
+                'comment_id': comment.id,
+                'user_id': comment.user_id,
+                'comment_text': comment.comment_text,
+                'created_at': comment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                'username': username  # Thêm username vào dữ liệu bình luận
+            })
+
         return {
             'status': 200,
             'data': {
                 'question_id': request.question_id,
                 'new_comment': new_comment,
-                'comments': [{"user_id": comment.user_id, "comment_text": comment.comment_text, "created_at": comment.created_at.strftime("%Y-%m-%d %H:%M:%S")} for comment in all_comments]
+                'comments': comments_data
+                # 'comments': [{"user_id": comment.user_id, "comment_text": comment.comment_text, "created_at": comment.created_at.strftime("%Y-%m-%d %H:%M:%S")} for comment in all_comments]
             }
         }
 

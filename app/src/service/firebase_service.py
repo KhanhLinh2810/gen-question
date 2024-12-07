@@ -1428,7 +1428,7 @@ class MySQLService:
         # Kiểm tra xem người dùng đã đánh giá câu hỏi chưa
         result = await self.db.execute(select(Comment).where(Comment.question_id == question_id, Comment.user_id == user_id))
 
-        # Nếu chưa có rating, tạo mới
+        # Nếu chưa có comment, tạo mới
         new_comment = Comment(question_id=question_id, user_id=user_id, comment_text=comment, created_at=datetime.datetime.now(datetime.timezone.utc))
         self.db.add(new_comment)
 
