@@ -315,6 +315,7 @@ class MySQLService:
             results.append({
                 'question_id': new_question.id,
                 'topic': new_question.topic,
+                'context': new_question.context,
                 'question_text': new_question.question_text,
                 'choices': choices,
                 'correct_choice': new_question.correct_choice,
@@ -947,7 +948,8 @@ class MySQLService:
 
                 question_data = {
                     'question_id': question.id,
-                    'text': question.question_text,
+                    'context': question.context,
+                    'question_text': question.question_text,
                     'choices': choices_text,
                     'correct_choice': question.correct_choice,
                     'tags': question.tags,
