@@ -534,7 +534,7 @@ async def get_questions(request: UserInput, bg_task: BackgroundTasks, token: str
         # Phân loại kết quả và lỗi
         for result, error in responses:
             if result:
-                results.append(result)
+                results.extend(result)
             if error:
                 error_sentences.append(error)
 
@@ -606,8 +606,17 @@ async def upload_pdf(tags: List[str], file: UploadFile = File(...), token: str =
             responses = await asyncio.gather(*tasks)
 
             # Phân loại kết quả và lỗi
-            results = [result for result, _ in responses if result]
-            error_sentences = [error for _, error in responses if error]
+            # results = [result for result, _ in responses if result]
+            # error_sentences = [error for _, error in responses if error]
+
+            results = []
+            error_sentences = []
+
+            for result, error in responses:
+                if result:
+                    results.extend(result)  # Nếu kết quả không phải là danh sách con, chúng ta dùng extend để thêm từng phần tử vào results
+                if error:
+                    error_sentences.append(error)  # Lưu các lỗi nếu có
 
             # Trả về kết quả
             response_content = {
@@ -667,8 +676,17 @@ async def generate_questions_from_image(tags: List[str],file: UploadFile = File(
             responses = await asyncio.gather(*[process_sentence(sentence) for sentence in sentences])
 
             # Phân tách kết quả thành kết quả thành công và lỗi
-            results = [result for result, _ in responses if result]
-            error_sentences = [error for _, error in responses if error]
+            # results = [result for result, _ in responses if result]
+            # error_sentences = [error for _, error in responses if error]
+
+            results = []
+            error_sentences = []
+
+            for result, error in responses:
+                if result:
+                    results.extend(result)  # Nếu kết quả không phải là danh sách con, chúng ta dùng extend để thêm từng phần tử vào results
+                if error:
+                    error_sentences.append(error)  # Lưu các lỗi nếu có
 
             response_content = {
                 'status': 200,
