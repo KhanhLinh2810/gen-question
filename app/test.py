@@ -761,6 +761,18 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(JWT
         # Gọi hàm để thêm hoặc cập nhật rating
         new_comment, all_comments = await user_service.add_comment(request.uid, request.question_id, request.comment)
 
+        # Lấy username cho new_comment
+        username = await user_service.get_username_from_uid(new_comment.user_id)
+
+        # Chuẩn hóa new_comment
+        new_comment_data = {
+            'comment_id': new_comment.id,  # Đổi tên id thành comment_id
+            'user_id': new_comment.user_id,
+            'comment_text': new_comment.comment_text,
+            'created_at': new_comment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            'username': username  # Thêm username vào new_comment
+        }
+
         comments_data = []
         for comment in all_comments:
             username = await user_service.get_username_from_uid(comment.user_id)  # Lấy tên người dùng từ user_id
@@ -776,7 +788,7 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(JWT
             'status': 200,
             'data': {
                 'question_id': request.question_id,
-                'new_comment': new_comment,
+                'new_comment': new_comment_data,
                 'comments': comments_data
                 # 'comments': [{"user_id": comment.user_id, "comment_text": comment.comment_text, "created_at": comment.created_at.strftime("%Y-%m-%d %H:%M:%S")} for comment in all_comments]
             }
