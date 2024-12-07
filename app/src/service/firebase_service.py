@@ -844,7 +844,7 @@ class MySQLService:
                         'comment_id': comment.id,
                         'user_id': comment.user_id,
                         'comment_value': comment.comment_text,
-                        'created_at': comment.created_at,
+                        'created_at': comment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                         'username': username  # Thêm username vào dữ liệu bình luận
                     })
                 
@@ -863,7 +863,7 @@ class MySQLService:
                     ratings_data.append({
                     'rating_id': rating.id, 
                     'rating_value': rating.rating_value, 
-                    'created_at': rating.created_at,
+                    'created_at': rating.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                     'username': username  # Thêm username vào dữ liệu bình luận
                 })
                 # ratings_data = [{'rating_id': rating['id'], 'rating_value': rating['rating_value']} for rating in question.ratings]
