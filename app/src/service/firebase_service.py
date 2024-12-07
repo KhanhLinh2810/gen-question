@@ -844,13 +844,28 @@ class MySQLService:
                         'comment_id': comment.id,
                         'user_id': comment.user_id,
                         'comment_value': comment.comment_text,
+                        'created_at': comment.created_at,
                         'username': username  # Thêm username vào dữ liệu bình luận
                     })
                 
                 # Lấy các đánh giá cho câu hỏi
                 ratings: List[Rating] = question.ratings
                 ratings_values = [rating.rating_value for rating in ratings]
-                ratings_data = [{'rating_id': rating.id, 'rating_value': rating.rating_value} for rating in question.ratings]
+                # ratings_data = [{
+                #     'rating_id': rating.id, 
+                #     'rating_value': rating.rating_value, 
+                #     'created_at': rating.created_at
+                # } 
+                # for rating in question.ratings]
+                ratings_data = []
+                for rating in ratings:
+                    username = await self.get_username_from_uid(rating.user_id)  # Lấy tên người dùng từ user_id
+                    ratings_data.append({
+                    'rating_id': rating.id, 
+                    'rating_value': rating.rating_value, 
+                    'created_at': rating.created_at,
+                    'username': username  # Thêm username vào dữ liệu bình luận
+                })
                 # ratings_data = [{'rating_id': rating['id'], 'rating_value': rating['rating_value']} for rating in question.ratings]
                 # Dưới không subscriptable được
 

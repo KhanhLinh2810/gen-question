@@ -731,7 +731,7 @@ async def rate_questions(request: ModelRatingInput, token: str = Depends(JWTBear
             'data': {
                 'question_id': request.question_id,
                 'average_rating': average_rating,
-                'ratings': [{"user_id": r.user_id, "rating_value": r.rating_value} for r in ratings]
+                'ratings': [{"user_id": r.user_id, "rating_value": r.rating_value, "created_at": r.created_at} for r in ratings]
             }
         }
 
@@ -754,7 +754,7 @@ async def comment_questions(request: ModelCommentInput, token: str = Depends(JWT
             'data': {
                 'question_id': request.question_id,
                 'new_comment': new_comment,
-                'ratings': [{"user_id": comment.user_id, "comment_text": comment.comment_text} for comment in all_comments]
+                'comments': [{"user_id": comment.user_id, "comment_text": comment.comment_text, "created_at": comment.created_at} for comment in all_comments]
             }
         }
 
