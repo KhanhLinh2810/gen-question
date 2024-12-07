@@ -38,7 +38,7 @@ def english_to_vietnamese(text):
     return translated_text
 
 # Tạo engine cho cơ sở dữ liệu
-database_url = "mysql+aiomysql://my_user:my_password@localhost/my_database"
+database_url = "mysql+aiomysql://my_user:my_password@103.138.113.68/my_database"
 engine = create_async_engine(database_url, echo=True)
 
 # Tạo session maker
