@@ -345,6 +345,17 @@ async def get_user_info(token: str = Depends(JWTBearer(SessionLocal))):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+@ app.get("/random-questions")
+async def get_random_questions(token: str = Depends(JWTBearer(SessionLocal)), limit: int = 20):
+    """API trả về ngẫu nhiên các câu hỏi."""
+    async with SessionLocal() as session:
+        mysql_service = MySQLService(session)
+        try:
+            random_questions = await mysql_service.get_random_questions(limit)
+            return JSONResponse(content={"status": 200, "data": random_questions})
+        except ValueError as e:
+            return JSONResponse(content={"status": 400, "error": str(e)}, status_code=400)
+
 @ app.get('/user-all-topics-questions')
 async def get_all_topics_and_questions(token: str = Depends(JWTBearer(SessionLocal))):
     async with SessionLocal() as session:

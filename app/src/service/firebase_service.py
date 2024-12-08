@@ -14,6 +14,7 @@ from sqlalchemy import delete, update, or_, Table
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker,selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.sql.expression import func
 from models import User, Question, Choice, Comment, Rating
 from deep_translator import GoogleTranslator
 from google.cloud import storage
@@ -1748,3 +1749,100 @@ class MySQLService:
             await self.db.rollback()
             print(f"Error deleting questions by topic: {e}")
             raise ValueError(f"Failed to delete questions by topic: {e}")
+        
+    async def get_random_questions(self, limit: int = 20) -> List[Dict[str, any]]:
+        """Lấy ngẫu nhiên các câu hỏi từ cơ sở dữ liệu.
+        
+        Args:
+            limit (int): Số lượng câu hỏi cần lấy. Mặc định là 20.
+
+        Returns:
+            List[Dict[str, any]]: Danh sách các câu hỏi.
+        """
+        try:
+            all_data = {}
+
+            query = (
+                select(Question)
+                .order_by(func.rand())
+                .limit(limit)
+                .options(selectinload(Question.choices))  # Load trước các lựa chọn
+            )
+            result = await self.db.execute(query)
+            questions_list = result.scalars().all()
+
+            if not questions_list:
+                raise ValueError("Không tìm thấy câu hỏi nào.")
+
+            # Chuẩn bị dữ liệu để trả về
+            for question in questions_list:
+                topic = question.topic
+                # Lấy các lựa chọn cho câu hỏi
+                choices: List[Choice] = question.choices
+                choices_text = [choice.choice_text for choice in choices] # Truy cập danh sách các lựa chọn liên quan
+
+                # Lấy các bình luận cho câu hỏi
+                comments: List[Comment] = question.comments
+                comments_text = [comment.comment_text for comment in comments]
+                # comments_data = [{
+                #                     'comment_id': comment.id,
+                #                     'user_id': comment.user_id,
+                #                     'comment_value': comment.comments_text
+                #                 }
+                #                 for comment in question.comments]
+                comments_data = []
+                for comment in comments:
+                    username = await self.get_username_from_uid(comment.user_id)  # Lấy tên người dùng từ user_id
+                    comments_data.append({
+                        'comment_id': comment.id,
+                        'user_id': comment.user_id,
+                        'comment_value': comment.comment_text,
+                        'created_at': comment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        'username': username  # Thêm username vào dữ liệu bình luận
+                    })
+                
+                # Lấy các đánh giá cho câu hỏi
+                ratings: List[Rating] = question.ratings
+                ratings_values = [rating.rating_value for rating in ratings]
+                # ratings_data = [{
+                #     'rating_id': rating.id, 
+                #     'rating_value': rating.rating_value, 
+                #     'created_at': rating.created_at
+                # } 
+                # for rating in question.ratings]
+                ratings_data = []
+                for rating in ratings:
+                    username = await self.get_username_from_uid(rating.user_id)  # Lấy tên người dùng từ user_id
+                    ratings_data.append({
+                    'rating_id': rating.id, 
+                    'rating_value': rating.rating_value, 
+                    'created_at': rating.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    'username': username  # Thêm username vào dữ liệu bình luận
+                })
+                # ratings_data = [{'rating_id': rating['id'], 'rating_value': rating['rating_value']} for rating in question.ratings]
+                # Dưới không subscriptable được
+
+                # Tính toán điểm trung bình
+                average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
+
+                question_data = {
+                    'question_id': question.id,
+                    'context': question.context,
+                    'question_text': question.question_text,
+                    'choices': choices_text,
+                    'correct_choice': question.correct_choice,
+                    'tags': question.tags,
+                    'comments': comments_data,  # Thêm bình luận vào dữ liệu câu hỏi
+                    'ratings': ratings_data,    # Thêm đánh giá vào dữ liệu câu hỏi
+                    'average_rating': average_rating
+                }
+                
+                # Thêm câu hỏi vào danh sách câu hỏi của topic
+                if topic not in all_data:
+                    all_data[topic] = []
+                all_data[topic].append(question_data)
+
+            return all_data
+        
+        except SQLAlchemyError as e:
+            raise ValueError(f"Could not retrieve data: {str(e)}")
