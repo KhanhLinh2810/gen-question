@@ -875,7 +875,8 @@ class MySQLService:
 
                 question_data = {
                     'question_id': question.id,
-                    'text': question.question_text,
+                    'context': question.context,
+                    'question_text': question.question_text,
                     'choices': choices_text,
                     'correct_choice': question.correct_choice,
                     'tags': question.tags,
