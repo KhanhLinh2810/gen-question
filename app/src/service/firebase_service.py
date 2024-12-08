@@ -1766,7 +1766,11 @@ class MySQLService:
                 select(Question)
                 .order_by(func.rand())
                 .limit(limit)
-                .options(selectinload(Question.choices))  # Load trước các lựa chọn
+                .options(
+                    selectinload(Question.choices),     # Load trước các lựa chọn
+                    selectinload(Question.comments),    # Load trước các bình luận
+                    selectinload(Question.ratings)      # Load trước các đánh giá
+                )
             )
             result = await self.db.execute(query)
             questions_list = result.scalars().all()
