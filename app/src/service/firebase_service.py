@@ -954,7 +954,7 @@ class MySQLService:
                 # Tính điểm trung bình của đánh giá
                 average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
 
-                user_data = self.get_username_from_uid(question.user_id)
+                user_data = await self.get_username_from_uid(question.user_id)
                 
                 question_data = {
                     'username': user_data,
@@ -1838,7 +1838,7 @@ class MySQLService:
                 # Tính toán điểm trung bình
                 average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
 
-                user_data = self.get_username_from_uid(question.user_id)
+                user_data = await self.get_username_from_uid(question.user_id)
                 
                 question_data = {
                     'username': user_data,
