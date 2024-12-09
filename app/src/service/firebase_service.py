@@ -312,8 +312,11 @@ class MySQLService:
 
             await self.db.commit()
 
+            user_data = await self.get_username_from_uid(uid)
+
             duplicate_info = await self.check_duplicates(uid, new_question.question_text, choices, new_question.id)
             results.append({
+                'username': user_data,
                 'question_id': new_question.id,
                 'topic': new_question.topic,
                 'context': new_question.context,
@@ -874,7 +877,10 @@ class MySQLService:
                 # Tính toán điểm trung bình
                 average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
 
+                user_data = await self.get_username_from_uid(uid)
+                
                 question_data = {
+                    'username': user_data,
                     'question_id': question.id,
                     'context': question.context,
                     'question_text': question.question_text,
@@ -948,7 +954,10 @@ class MySQLService:
                 # Tính điểm trung bình của đánh giá
                 average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
 
+                user_data = self.get_username_from_uid(question.user_id)
+                
                 question_data = {
+                    'username': user_data,
                     'question_id': question.id,
                     'context': question.context,
                     'question_text': question.question_text,
@@ -1829,7 +1838,10 @@ class MySQLService:
                 # Tính toán điểm trung bình
                 average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
 
+                user_data = self.get_username_from_uid(question.user_id)
+                
                 question_data = {
+                    'username': user_data,
                     'question_id': question.id,
                     'context': question.context,
                     'question_text': question.question_text,
