@@ -287,6 +287,7 @@ class MySQLService:
             topic = str(uuid.uuid4())
 
         results = []
+        user_data = await self.get_username_from_uid(uid)
         for idx, question in enumerate(questions):
             new_question = Question(
                 user_id=uid,
@@ -311,8 +312,6 @@ class MySQLService:
                 self.db.add(new_choice)
 
             await self.db.commit()
-
-            user_data = await self.get_username_from_uid(uid)
 
             duplicate_info = await self.check_duplicates(uid, new_question.question_text, choices, new_question.id)
             results.append({
