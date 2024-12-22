@@ -16,6 +16,7 @@ import asyncio
 from src.service.firebase_service2 import FirebaseService
 from src.service.firebase_service import MySQLService, SessionLocal
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -62,6 +63,20 @@ def vietnamese_to_english(text):
 # FastAPI setup
 app = FastAPI()
 firebase_app = FirebaseService()
+
+# Cấu hình CORS
+origins = [
+    "http://localhost:3000",  # Thêm domain frontend của bạn vào đây
+    "http://103.138.113.68",  # Hoặc bất kỳ domain nào bạn muốn cho phép
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # Cho phép tất cả các phương thức: GET, POST, PUT, DELETE...
+    allow_headers=["*"],  # Cho phép tất cả các header
+)
 
 # initialize question and ans models
 summarizer = AbstractiveSummarizer()
