@@ -878,6 +878,8 @@ class MySQLService:
 
                 user_data = await self.get_username_from_uid(uid)
                 
+                duplicate_info = await self.check_duplicates(uid, question.question_text, choices, question.id)
+                
                 question_data = {
                     'username': user_data,
                     'question_id': question.id,
@@ -886,6 +888,7 @@ class MySQLService:
                     'choices': choices_text,
                     'correct_choice': question.correct_choice,
                     'tags': question.tags,
+                    'duplicate_info': duplicate_info,
                     'comments': comments_data,  # Thêm bình luận vào dữ liệu câu hỏi
                     'ratings': ratings_data,    # Thêm đánh giá vào dữ liệu câu hỏi
                     'average_rating': average_rating
