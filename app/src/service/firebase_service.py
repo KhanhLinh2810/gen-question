@@ -180,11 +180,14 @@ class MySQLService:
             'duplicate_answers': []
         }
 
+        # Chuyển đổi `answers` thành danh sách các chuỗi nếu chưa phải
+        answer_texts = [answer.choice_text if isinstance(answer, Choice) else answer for answer in answers]
+
         # Kiểm tra trùng lặp của các đáp án
-        for answer in answers:
+        for answer_text in answer_texts:
             answer_query = select(Choice).where(
                 Choice.question_id.in_([q.id for q in duplicate_questions]),
-                Choice.choice_text == answer
+                Choice.choice_text == answer_text
             )
             answer_result = await self.db.execute(answer_query)
             duplicate_choices = answer_result.scalars().all()
@@ -879,7 +882,7 @@ class MySQLService:
                 user_data = await self.get_username_from_uid(uid)
                 
                 duplicate_info = await self.check_duplicates(uid, question.question_text, choices, question.id)
-                
+
                 question_data = {
                     'username': user_data,
                     'question_id': question.id,
