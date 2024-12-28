@@ -924,8 +924,11 @@ async def export_questions(request: ModelExportInput, token: str = Depends(JWTBe
     file_name = f"{request.name}.txt"
     file_content = io.StringIO(aiken_format_content)  # Lưu trữ nội dung dưới dạng chuỗi trong bộ nhớ
 
+    # Đảm bảo header "Content-Disposition" sử dụng UTF-8 để không gặp lỗi mã hóa
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{file_name}"}
+
     # Trả về file cho người dùng (streaming response)
-    return StreamingResponse(file_content, media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={file_name}"})
+    return StreamingResponse(file_content, media_type="text/plain", headers=headers)
 
 @ app.post('/export-questions-moodle')
 async def export_questions_moodle(request: ModelExportInput, token: str = Depends(JWTBearer(SessionLocal))):
@@ -960,8 +963,11 @@ async def export_questions_moodle(request: ModelExportInput, token: str = Depend
     file_name = f"{request.name}.txt"
     file_content = io.StringIO(moodle_xml_format_content)  # Lưu trữ nội dung dưới dạng chuỗi trong bộ nhớ
 
+    # Đảm bảo header "Content-Disposition" sử dụng UTF-8 để không gặp lỗi mã hóa
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{file_name}"}
+
     # Trả về file cho người dùng (streaming response)
-    return StreamingResponse(file_content, media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={file_name}"})
+    return StreamingResponse(file_content, media_type="text/plain", headers=headers)
 
 @ app.post("/change-topic-name", response_model=Dict[str, str])
 async def change_topic_name(request: ChangeTopicRequest, token: str = Depends(JWTBearer(SessionLocal))):
