@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from auth import JWTBearer
 from deep_translator import GoogleTranslator
 from typing import Optional, Dict, List
@@ -909,17 +909,23 @@ async def export_questions(request: ModelExportInput, token: str = Depends(JWTBe
 
     aiken_format_content =await user_service.generate_aiken_content(questions)
     
-    # Tạo đường dẫn đến file trong thư mục Downloads của người dùng
-    downloads_path = str(Path.home() / "Downloads")
+    # # Tạo đường dẫn đến file trong thư mục Downloads của người dùng
+    # downloads_path = str(Path.home() / "Downloads")
+    # file_name = f"{request.name}.txt"
+    # file_path = os.path.join(downloads_path, file_name)
+
+    # # Ghi nội dung vào file
+    # with open(file_path, "w", encoding="utf-8") as file:
+    #     file.write(aiken_format_content)
+
+    # # Trả về file cho người dùng
+    # return FileResponse(file_path, filename=file_name, media_type='text/plain')
+    # Tạo in-memory file với nội dung câu hỏi Aiken
     file_name = f"{request.name}.txt"
-    file_path = os.path.join(downloads_path, file_name)
+    file_content = io.StringIO(aiken_format_content)  # Lưu trữ nội dung dưới dạng chuỗi trong bộ nhớ
 
-    # Ghi nội dung vào file
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(aiken_format_content)
-
-    # Trả về file cho người dùng
-    return FileResponse(file_path, filename=file_name, media_type='text/plain')
+    # Trả về file cho người dùng (streaming response)
+    return StreamingResponse(file_content, media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={file_name}"})
 
 @ app.post('/export-questions-moodle')
 async def export_questions_moodle(request: ModelExportInput, token: str = Depends(JWTBearer(SessionLocal))):
@@ -940,17 +946,22 @@ async def export_questions_moodle(request: ModelExportInput, token: str = Depend
 
     moodle_xml_format_content =await user_service.generate_moodle_xml_content(questions)
     
-    # Tạo đường dẫn đến file trong thư mục Downloads của người dùng
-    downloads_path = str(Path.home() / "Downloads")
-    file_name = f"{request.name}.xml"
-    file_path = os.path.join(downloads_path, file_name)
+    # # Tạo đường dẫn đến file trong thư mục Downloads của người dùng
+    # downloads_path = str(Path.home() / "Downloads")
+    # file_name = f"{request.name}.xml"
+    # file_path = os.path.join(downloads_path, file_name)
 
-    # Ghi nội dung vào file
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(moodle_xml_format_content)
+    # # Ghi nội dung vào file
+    # with open(file_path, "w", encoding="utf-8") as file:
+    #     file.write(moodle_xml_format_content)
 
-    # Trả về file cho người dùng
-    return FileResponse(file_path, filename=file_name, media_type='text/plain')
+    # # Trả về file cho người dùng
+    # return FileResponse(file_path, filename=file_name, media_type='text/plain')
+    file_name = f"{request.name}.txt"
+    file_content = io.StringIO(moodle_xml_format_content)  # Lưu trữ nội dung dưới dạng chuỗi trong bộ nhớ
+
+    # Trả về file cho người dùng (streaming response)
+    return StreamingResponse(file_content, media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={file_name}"})
 
 @ app.post("/change-topic-name", response_model=Dict[str, str])
 async def change_topic_name(request: ChangeTopicRequest, token: str = Depends(JWTBearer(SessionLocal))):
