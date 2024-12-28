@@ -919,7 +919,7 @@ async def export_questions(request: ModelExportInput, token: str = Depends(JWTBe
         file.write(aiken_format_content)
 
     # Trả về file cho người dùng
-    return FileResponse(file_path, filename=file_name)
+    return FileResponse(file_path, filename=file_name, media_type='text/plain')
 
 @ app.post('/export-questions-moodle')
 async def export_questions_moodle(request: ModelExportInput, token: str = Depends(JWTBearer(SessionLocal))):
@@ -950,7 +950,7 @@ async def export_questions_moodle(request: ModelExportInput, token: str = Depend
         file.write(moodle_xml_format_content)
 
     # Trả về file cho người dùng
-    return FileResponse(file_path, filename=file_name)
+    return FileResponse(file_path, filename=file_name, media_type='text/plain')
 
 @ app.post("/change-topic-name", response_model=Dict[str, str])
 async def change_topic_name(request: ChangeTopicRequest, token: str = Depends(JWTBearer(SessionLocal))):
