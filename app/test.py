@@ -13,6 +13,7 @@ import os
 import io
 import re
 import asyncio
+import urllib.parse
 from src.service.firebase_service2 import FirebaseService
 from src.service.firebase_service import MySQLService, SessionLocal
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, UploadFile, File
@@ -922,10 +923,12 @@ async def export_questions(request: ModelExportInput, token: str = Depends(JWTBe
     # return FileResponse(file_path, filename=file_name, media_type='text/plain')
     # Tạo in-memory file với nội dung câu hỏi Aiken
     file_name = f"{request.name}.txt"
+    # URL-encode tên file để tránh vấn đề mã hóa
+    encoded_file_name = urllib.parse.quote(file_name)
     file_content = io.StringIO(aiken_format_content)  # Lưu trữ nội dung dưới dạng chuỗi trong bộ nhớ
 
-    # Đảm bảo header "Content-Disposition" sử dụng UTF-8 để không gặp lỗi mã hóa
-    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{file_name}"}
+    # Cập nhật header với tên file đã mã hóa
+    headers = {"Content-Disposition": f"attachment; filename={encoded_file_name}"}
 
     # Trả về file cho người dùng (streaming response)
     return StreamingResponse(file_content, media_type="text/plain", headers=headers)
@@ -961,10 +964,12 @@ async def export_questions_moodle(request: ModelExportInput, token: str = Depend
     # # Trả về file cho người dùng
     # return FileResponse(file_path, filename=file_name, media_type='text/plain')
     file_name = f"{request.name}.txt"
+    # URL-encode tên file để tránh vấn đề mã hóa
+    encoded_file_name = urllib.parse.quote(file_name)
     file_content = io.StringIO(moodle_xml_format_content)  # Lưu trữ nội dung dưới dạng chuỗi trong bộ nhớ
 
-    # Đảm bảo header "Content-Disposition" sử dụng UTF-8 để không gặp lỗi mã hóa
-    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{file_name}"}
+    # Cập nhật header với tên file đã mã hóa
+    headers = {"Content-Disposition": f"attachment; filename={encoded_file_name}"}
 
     # Trả về file cho người dùng (streaming response)
     return StreamingResponse(file_content, media_type="text/plain", headers=headers)
