@@ -907,7 +907,7 @@ class MySQLService:
         except SQLAlchemyError as e:
             raise ValueError(f"Could not retrieve data: {str(e)}")
     
-    async def search_questions_by_keyword(self, keyword: str):
+    async def search_questions_by_keyword(self, uid: int, keyword: str):
         """
         Tìm kiếm tất cả các câu hỏi có chứa từ khóa trong Question.context hoặc Question.question_text.
 
@@ -960,6 +960,8 @@ class MySQLService:
                 average_rating = sum(ratings_values) / len(ratings_values) if ratings_values else 0
 
                 user_data = await self.get_username_from_uid(question.user_id)
+
+                duplicate_info = await self.check_duplicates(uid, question.question_text, choices, question.id)
                 
                 question_data = {
                     'username': user_data,
@@ -969,6 +971,7 @@ class MySQLService:
                     'choices': choices_text,
                     'correct_choice': question.correct_choice,
                     'tags': question.tags,
+                    'duplicate_info': duplicate_info,
                     'comments': comments_data,
                     'ratings': ratings_data,
                     'average_rating': average_rating

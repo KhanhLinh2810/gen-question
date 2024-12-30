@@ -297,7 +297,12 @@ async def search_questions_by_keyword(keyword: str, token: str = Depends(JWTBear
     async with SessionLocal() as session:
         mysql_service = MySQLService(session)
         try:
-            search_questions = await mysql_service.search_questions_by_keyword(keyword)
+            user_data = await mysql_service.get_user_by_token(token)
+            if not user_data:
+                raise HTTPException(status_code=404, detail="User not found")
+            uid = user_data.id
+
+            search_questions = await mysql_service.search_questions_by_keyword(uid, keyword)
             
             return JSONResponse(content={'status': 200, 'data': search_questions})
         except ValueError as e:
@@ -367,7 +372,12 @@ async def get_random_questions(token: str = Depends(JWTBearer(SessionLocal)), li
     async with SessionLocal() as session:
         mysql_service = MySQLService(session)
         try:
-            random_questions = await mysql_service.get_random_questions(limit)
+            user_data = await mysql_service.get_user_by_token(token)
+            if not user_data:
+                raise HTTPException(status_code=404, detail="User not found")
+            uid = user_data.id
+
+            random_questions = await mysql_service.get_random_questions(uid, limit)
             return JSONResponse(content={"status": 200, "data": random_questions})
         except ValueError as e:
             return JSONResponse(content={"status": 400, "error": str(e)}, status_code=400)
