@@ -16,7 +16,7 @@ import asyncio
 import urllib.parse
 from src.service.firebase_service2 import FirebaseService
 from src.service.firebase_service import MySQLService, SessionLocal
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -468,7 +468,12 @@ async def delete_user(token: str = Depends(JWTBearer(SessionLocal))):
             raise HTTPException(status_code=500, detail=str(e))
         
 @ app.post('/change-user-info')
-async def change_user_info(user: UserInfo, token: str = Depends(JWTBearer(SessionLocal))):
+async def change_user_info(
+    username: str = Form(...),
+    email: str = Form(...),
+    avatar: UploadFile = File(None),
+    token: str = Depends(JWTBearer(SessionLocal))
+):
     """Thay đổi thông tin người dùng."""
     async with SessionLocal() as session:
         try:
@@ -477,12 +482,24 @@ async def change_user_info(user: UserInfo, token: str = Depends(JWTBearer(Sessio
             # Lấy thông tin người dùng từ token
             user_data = await user_service.get_user_by_token(token)
             uid = user_data.id  # Giả sử `id` là trường chính của người dùng
-            
+
+            # Nếu avatar là file, upload avatar
+            avatar_url = None
+            if avatar:
+                avatar_url = firebase_app.upload_avatar(uid, avatar)
+                await user_service.update_avatar_url(uid, avatar_url)
+
             # Thay đổi thông tin người dùng
-            success = await user_service.change_user_info(uid, user.email, user.username)
+            success = await user_service.change_user_info(uid, email, username)
             
             if success:
-                return JSONResponse(content={'status': 200, 'message': f'User {user.username} info changed successfully'})
+                response_data = {
+                    'status': 200,
+                    'message': f'User {username} info changed successfully',
+                }
+                if avatar_url:
+                    response_data['avatar_url'] = avatar_url
+                return JSONResponse(content=response_data)
             else:
                 raise HTTPException(status_code=500, detail="Failed to change user info")
                 
