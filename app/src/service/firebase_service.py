@@ -1379,7 +1379,7 @@ class MySQLService:
                         topic = question_data.get('topic'),
                         correct_choice = question_data.get('correct_choice'),
                         question_text = question_data.get('question_text'),
-                        tags = json.dumps(question_data.get('tags')) if isinstance(question_data.get('tags'), list) else question_data.get('tags')
+                        tags = question_data.get('tags')  # Lưu chuỗi tags
                     )
                 )
                 result = await self.db.execute(stmt)
