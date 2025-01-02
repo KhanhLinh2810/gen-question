@@ -69,11 +69,12 @@ firebase_app = FirebaseService()
 origins = [
     "http://localhost:3000",  # Thêm domain frontend của bạn vào đây
     "http://103.138.113.68",  # Hoặc bất kỳ domain nào bạn muốn cho phép
+    "https://fe-graduation-project.vercel.app"
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],  # Cho phép tất cả các phương thức: GET, POST, PUT, DELETE...
     allow_headers=["*"],  # Cho phép tất cả các header
