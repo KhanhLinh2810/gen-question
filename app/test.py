@@ -331,7 +331,7 @@ async def update_question(question_id: str, info: UpdateQuestion, token: str = D
                 'topic': info.topic,
                 'correct_choice': info.correct_choice,
                 'question_text': info.question_text,
-                'tags': json.dumps(info.tags)
+                'tags': json.dumps(info.tags) if isinstance(info.tags, list) else info.tags
             }
             response = await mysql_service.update_question(uid, question_id, new_info)
             # Kiểm tra và chuyển đổi các giá trị kiểu set trong response thành list
