@@ -62,7 +62,7 @@ def vietnamese_to_english(text):
 
 
 # FastAPI setup
-app = FastAPI()
+app = FastAPI(root_path = "/BE")
 firebase_app = FirebaseService()
 
 # Cấu hình CORS
@@ -74,7 +74,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],  # Cho phép tất cả các phương thức: GET, POST, PUT, DELETE...
     allow_headers=["*"],  # Cho phép tất cả các header
