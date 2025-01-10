@@ -501,7 +501,7 @@ async def change_user_info(
                 }
                 if avatar_url:
                     response_data['avatar_url'] = avatar_url
-                return JSONResponse(content=response_data)
+                return JSONResponse(content=response_data, headers={"Access-Control-Allow-Origin": "*"})
             else:
                 raise HTTPException(status_code=500, detail="Failed to change user info")
                 
