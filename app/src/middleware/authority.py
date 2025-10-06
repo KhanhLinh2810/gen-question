@@ -64,3 +64,7 @@ class JWTBearer(HTTPBearer):
             raise HTTPException(status_code=403, detail="Invalid token")
 
         return True
+    
+
+    # xác định phát triển tính năng gì mới
+    # 

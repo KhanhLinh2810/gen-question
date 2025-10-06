@@ -3,29 +3,23 @@
 @Author: Karthick T. Sharma
 """
 
-import os
-import firebase_admin
-
-from firebase_admin import firestore
-from firebase_admin import credentials
-
 from sqlalchemy.future import select
-from sqlalchemy import delete, update, or_, Table
+from sqlalchemy import delete, update, or_
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker,selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.sql.expression import func
 from models import User, Question, Choice, Comment, Rating
-from deep_translator import GoogleTranslator
 from google.cloud import storage
 import bcrypt
 # from passlib.hash import bcrypt
 import jwt
 import datetime
 import uuid
-from typing import Optional, Dict, List
+from typing import Dict, List
 import xml.etree.ElementTree as ET
-import json
+
+from src.utils import english_to_vietnamese
 
 # Set up logging
 import logging
@@ -33,11 +27,6 @@ logging.basicConfig(level=logging.INFO)
 
 # os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'D:/GR2/quizzzy2/quizzzy-backend/app/secret/serviceAccountKey.json'
 
-
-def english_to_vietnamese(text):
-    translator = GoogleTranslator(source='en', target='vi')
-    translated_text = translator.translate(text)
-    return translated_text
 
 # Tạo engine cho cơ sở dữ liệu
 database_url = "mysql+aiomysql://my_user:my_password@103.138.113.68/my_database"
@@ -50,7 +39,7 @@ SessionLocal = sessionmaker(
     expire_on_commit=False
 )
 
-class MySQLService:
+class FirebaseService:
     """FirebaseService"""
     """Handle firestore operations."""
 
@@ -500,11 +489,11 @@ class MySQLService:
             await self.db.rollback()
             raise ValueError("Username or email already exists")
 
-    # def authenticate_user(self, identifier, password):
+    # def authenticate_user(self, id, password):
     #     """Authenticate a user with email/username and password.
 
     #     Args:
-    #         identifier (str): User's email or username.
+    #         id (str): User's email or username.
     #         password (str): User's password.
 
     #     Returns:
@@ -512,10 +501,10 @@ class MySQLService:
     #     """
     #     users_ref = self._db.collection('users')
         
-    #     # Check if the identifier is an email or username
-    #     user_query = users_ref.where('email', '==', identifier).get()
+    #     # Check if the id is an email or username
+    #     user_query = users_ref.where('email', '==', id).get()
     #     if not user_query:
-    #         user_query = users_ref.where('username', '==', identifier).get()
+    #         user_query = users_ref.where('username', '==', id).get()
         
     #     if not user_query:
     #         raise ValueError("Invalid email/username or password")
@@ -658,7 +647,7 @@ class MySQLService:
     #     """
     #         Change password of a user in Firestore.
     #         Args:
-    #             identifier (str): User's email or username.
+    #             id (str): User's email or username.
     #             current_password (str): User's current password.
     #             new_password (str): User's new password.
     #         Returns:

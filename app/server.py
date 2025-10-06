@@ -17,7 +17,7 @@ def login():
         'Content-Type': 'application/json'
     }
     data = {
-        "identifier": "new_user",
+        "id": "new_user",
         "password": "12345678"
     }
 

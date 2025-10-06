@@ -12,8 +12,9 @@ class QuestionGenerator(Model):
 
     def __init__(self):
         """Initialize question generator."""
-        super().__init__(model_name='t5-question',
-                         path_id='1_0dPLdv8WNtSYQdKEWxFc03IR-szs0kB')
+        super().__init__(model_name='iarfmoose/t5-base-question-generator')
+        # super().__init__(model_name='t5-question',
+        #                  path_id='1_0dPLdv8WNtSYQdKEWxFc03IR-szs0kB')
 
     def generate(self, context, answer):
         """Generate abstrative summary of given context.

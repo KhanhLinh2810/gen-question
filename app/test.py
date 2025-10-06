@@ -142,7 +142,7 @@ class UserCreate(BaseModel):
     password: str
 
 class UserLogin(BaseModel):
-    identifier: str  # Can be either email or username
+    id: str  # Can be either email or username
     password: str
 
 class UserChangePassword(BaseModel):
@@ -260,7 +260,7 @@ async def login_user(user: UserLogin):
     async with SessionLocal() as session:
         mysql_service = MySQLService(session)  # Truyền db vào khởi tạo MySQLService
         try:
-            token, uid = await mysql_service.authenticate_user(user.identifier, user.password)
+            token, uid = await mysql_service.authenticate_user(user.id, user.password)
 
             # Lưu token mới vào Firestore
             await mysql_service.update_user_token(uid, token)
@@ -401,15 +401,15 @@ async def get_all_topics_and_questions(token: str = Depends(JWTBearer(SessionLoc
             raise HTTPException(status_code=400, detail=str(e))
 
 @ app.get('/other-user-all-topics-questions')
-async def get_other_all_topics_and_questions(identifier: str, token: str = Depends(JWTBearer(SessionLocal))):
+async def get_other_all_topics_and_questions(id: str, token: str = Depends(JWTBearer(SessionLocal))):
     async with SessionLocal() as session:
         mysql_service = MySQLService(session)
         try:
             # Sử dụng dịch vụ MySQL để tìm người dùng theo email
-            user = await mysql_service.get_user_by_email(identifier)
+            user = await mysql_service.get_user_by_email(id)
 
             if not user:  # Nếu không tìm thấy theo email, tìm theo username
-                user = await mysql_service.get_user_by_username(identifier)
+                user = await mysql_service.get_user_by_username(id)
 
             if not user:
                 raise ValueError("Invalid email/username")
@@ -421,16 +421,16 @@ async def get_other_all_topics_and_questions(identifier: str, token: str = Depen
             raise HTTPException(status_code=400, detail=str(e))
 
 @ app.get('/other-user-info')
-async def get_other_user_info(identifier: str, token: str = Depends(JWTBearer(SessionLocal))):
+async def get_other_user_info(id: str, token: str = Depends(JWTBearer(SessionLocal))):
     """Lấy thông tin người dùng khác dựa trên email hoặc username."""
     async with SessionLocal() as session:
         mysql_service = MySQLService(session)
         try:
             # Sử dụng dịch vụ MySQL để tìm người dùng theo email
-            user = await mysql_service.get_user_by_email(identifier)
+            user = await mysql_service.get_user_by_email(id)
 
             if not user:  # Nếu không tìm thấy theo email, tìm theo username
-                user = await mysql_service.get_user_by_username(identifier)
+                user = await mysql_service.get_user_by_username(id)
 
             if not user:
                 raise ValueError("Invalid email/username")

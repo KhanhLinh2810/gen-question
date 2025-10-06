@@ -9,21 +9,7 @@ import firebase_admin
 from firebase_admin import firestore
 from firebase_admin import credentials
 
-from sqlalchemy.future import select
-from sqlalchemy import delete, update
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker,selectinload
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from models import User, Question, Choice, Comment, Rating
-from deep_translator import GoogleTranslator
 from google.cloud import storage
-import bcrypt
-# from passlib.hash import bcrypt
-import jwt
-import datetime
-import uuid
-from typing import Optional, Dict, List
-import xml.etree.ElementTree as ET
 
 # Set up logging
 import logging

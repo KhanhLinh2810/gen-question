@@ -1,106 +1,77 @@
-"""This module contains all tasks related to transformer model
+"""
+This module contains all tasks related to transformer model
+Refactored to use Hugging Face Flan-T5 (no fastT5 dependency)
 
 @Author: Karthick T. Sharma
+@Modified: LinhGPT
 """
 
 import os
-import gdown
-
-from fastT5 import get_onnx_runtime_sessions, OnnxT5
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 
 class Model:
-    """Abstract class for model predictions."""
+    """Generalized T5/Flan-T5 model for text generation."""
 
-    def __init__(self, model_name, path_id):
-        """Load model into memory.
-
-           https://github.com/Ki6an/fastT5
+    def __init__(self, model_name: str = "google/flan-t5-base"):
         """
-
-        os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-        model_path = f"./resources/{model_name}"  # put dot
-        if not os.path.isdir(os.getcwd() + model_path[1:]):
-            gdown.download_folder(
-                id=path_id, output=model_path[2:], quiet=True, use_cookies=False)
-
-        encoder_path = os.path.join(
-            model_path, f"{model_name}-encoder-quantized.onnx")
-        decoder_path = os.path.join(
-            model_path, f"{model_name}-decoder-quantized.onnx")
-        init_decoder_path = os.path.join(
-            model_path, f"{model_name}-init-decoder-quantized.onnx")
-
-        model_sessions = get_onnx_runtime_sessions(
-            (encoder_path, decoder_path, init_decoder_path))
-        self.__model = OnnxT5(model_path, model_sessions)
-        self.__tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-    def tokenize_corpus(self, text, max_length):
-        """Tokeninze model input.
+        Load model and tokenizer into memory.
 
         Args:
-            text (str): preprocessed corpus.
-            max_length (int, optional): limits length of returned sequence.
-
-        Returns:
-            tupe[str, str]: tuple of tokens and attention masks.
+            model_name (str): Name or path of the Hugging Face model.
         """
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+        print(f"🔹 Loading model: {model_name} ...")
+        self.__tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.__model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        print("✅ Model and tokenizer loaded successfully.\n")
+
+    def tokenize_corpus(self, text: str, max_length: int):
+        """Tokenize model input text."""
         encode = self.__tokenizer.encode_plus(
-            text, return_tensors='pt', max_length=max_length,
-            pad_to_max_length=False, truncation=True)
-
+            text,
+            return_tensors="pt",
+            max_length=max_length,
+            truncation=True,
+            padding="max_length",
+        )
         return encode["input_ids"], encode["attention_mask"]
 
     def __extract_dict(self, input_dict):
-        """Extract key and value from dictionary into string.
+        """Extract key-value pairs into a string format."""
+        return " ".join(f"{k}: {v}" for k, v in input_dict.items())
 
-        Args:
-            dict (dict(str: str)): key value pairs of input args.
-
-        Returns:
-            str: parsed dictionary
+    def inference(
+        self,
+        num_beams: int = 4,
+        no_repeat_ngram_size: int = 2,
+        model_max_length: int = 128,
+        num_return_sequences: int = 1,
+        token_max_length: int = 256,
+        **kwargs,
+    ):
         """
-        output = ""
-        for key, value in input_dict.items():
-            output += f"{key}: {value} "
-        return output[:-1]
-
-    # pylint: disable=too-many-arguments
-    def inference(self, num_beams, no_repeat_ngram_size, model_max_length,
-                  num_return_sequences=None, token_max_length=None, **kwargs):
-        """Generate output from model.
-
-        Args:
-            num_beams (int): max no. of output to be considered.
-            no_repeat_ngram_size (int): all ngrams of that size can only occur once.
-            model_max_length (int): max length generated tokens can have.
-            num_return_sequences (_type_, optional): No of returned sequences. Defaults to None.
-            token_max_length (int, optional): max length returned sequence can have. Defaults
-            to None.
-
-        Returns:
-            str: unprocessed model output.
+        Generate model output text.
         """
-
         text = self.__extract_dict(kwargs)
+        input_ids, attention_mask = self.tokenize_corpus(text, token_max_length)
 
-        input_tokens_ids, attention_mask = self.tokenize_corpus(
-            text, token_max_length)
+        outputs = self.__model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            num_beams=num_beams,
+            num_return_sequences=num_return_sequences,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            max_length=model_max_length,
+            early_stopping=True,
+        )
 
-        # encoded output
-        encoded_output = self.__model.generate(input_ids=input_tokens_ids,
-                                               attention_mask=attention_mask,
-                                               num_beams=num_beams,
-                                               num_return_sequences=num_return_sequences,
-                                               no_repeat_ngram_size=no_repeat_ngram_size,
-                                               max_length=model_max_length,
-                                               early_stopping=True)
+        decoded = [
+            self.__tokenizer.decode(
+                output, skip_special_tokens=True, clean_up_tokenization_spaces=True
+            )
+            for output in outputs
+        ]
 
-        # decode summarized token
-        output = self.__tokenizer.decode(
-            encoded_output[0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
-        return output
+        return decoded[0] if num_return_sequences == 1 else decoded

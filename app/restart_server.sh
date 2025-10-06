@@ -8,7 +8,7 @@ while true; do
       -H 'accept: application/json' \
       -H 'Content-Type: application/json' \
       -d '{
-      "identifier": "new_user",
+      "id": "new_user",
       "password": "12345678"
     }')
 
