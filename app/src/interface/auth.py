@@ -10,6 +10,5 @@ class ILogin(BaseModel):
     password: str
 
 class IChangePassword(BaseModel):
-    password: str
     new_password: str
 

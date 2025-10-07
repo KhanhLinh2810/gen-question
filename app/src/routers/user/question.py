@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, Depends, File
+from fastapi import APIRouter, HTTPException, UploadFile, Request, File, Query
 from fastapi.responses import JSONResponse, FileResponse
 from PIL import Image
 from PyPDF2 import PdfReader
@@ -8,12 +8,10 @@ from pathlib import Path
 
 import io, os, re, pytesseract
 
-from src.utils import vietnamese_to_english
-from src.inferencehandler import inference_handler
+from src.repositories import QuestionRepository, ChoiceRepository
 from src.interface import *
 from src.service import *
-from src.loaders.database import auth_scheme, fs
-from src.loaders import summarizer, keyword_extractor, false_ans_gen, question_gen
+from src.utils import res_ok
 
 
 router = APIRouter(
@@ -23,15 +21,12 @@ router = APIRouter(
 
 # create
 @router.post("/pdf")
-async def generate_questions_from_pdf(file: UploadFile = File(...), token: str = Depends(auth_scheme)) -> Dict[str, str]:
-    try:
-        user_data = fs.get_user_by_token(token)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+async def generate_questions_from_pdf(request: Request, file: UploadFile = File(...),) -> Dict[str, str]:
+    question_repo = QuestionRepository()
+    user_id = request.state.user["uid"]
     # Kiểm tra định dạng file
     if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="File không phải định dạng PDF")
+        raise HTTPException(status_code=400, detail="file.not_pdf")
 
     try:
         # Đọc nội dung của file PDF
@@ -47,7 +42,7 @@ async def generate_questions_from_pdf(file: UploadFile = File(...), token: str =
         print(topic)
 
         # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
-        results = []
+        new_questions = []
         error_sentences = []
 
         # Tạo biểu thức chính quy để tìm các dấu ngắt câu
@@ -60,38 +55,33 @@ async def generate_questions_from_pdf(file: UploadFile = File(...), token: str =
         sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
         print(sentences)
 
-        model_input = ModelInput(context=text, name=topic, uid=user_data['uid'])
         # Gửi yêu cầu cho mỗi câu và thu thập kết quả
         for sentence in sentences:
             try:
-                result = generate_and_store_questions(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
-                results.append(result)
+                new_question = question_repo.generate_and_store_questions(ModelInput(context=sentence, uid=user_id, name=topic))
+                new_questions.append(new_question)
             except Exception as e:
                 print(f"Lỗi khi xử lí câu: {sentence}. Lỗi: {e}")
                 error_sentences.append({'sentence': sentence, 'error': str(e)})
                 continue
-
-        response_content = {
-            'status': 200,
-            'data': results,
-            'errors': error_sentences if error_sentences else None
-        }
         
-        return JSONResponse(content=response_content)
+        result = {
+            "success": new_questions,
+            "fail": error_sentences
+        }
+        return JSONResponse(status_code=200, content=res_ok(result))
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {e}")
 
 @router.post("/image")
-async def generate_questions_from_image(file: UploadFile = File(...), token: str = Depends(auth_scheme)):
-    try:
-        user_data = fs.get_user_by_token(token)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+async def generate_questions_from_image(request: Request, file: UploadFile = File(...)):
+    question_repo = QuestionRepository()
+    user_id = request.state.user["uid"]
     
     # Kiểm tra định dạng file
     if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File không phải là hình ảnh")
+        raise HTTPException(status_code=400, detail="file.not_image")
     
     try:
         # Đọc hình ảnh
@@ -115,7 +105,7 @@ async def generate_questions_from_image(file: UploadFile = File(...), token: str
         print(topic)
 
         # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
-        results = []
+        new_questions = []
         error_sentences = []
 
         # Tạo biểu thức chính quy để tìm các dấu ngắt câu
@@ -128,29 +118,27 @@ async def generate_questions_from_image(file: UploadFile = File(...), token: str
         sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
         print(sentences)
 
-        model_input = ModelInput(context=combined_text, name=topic, uid=user_data['uid'])
         # Gửi yêu cầu cho mỗi câu và thu thập kết quả
         for sentence in sentences:
             try:
-                result = generate_and_store_questions(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
-                results.append(result)
+                new_question = question_repo.generate_and_store_questions(ModelInput(context=sentence, uid=user_id, name=topic))
+                new_questions.append(new_question)
             except Exception as e:
                 print(f"Lỗi khi xử lí câu: {sentence}. Lỗi: {e}")
                 error_sentences.append({'sentence': sentence, 'error': str(e)})
                 continue
-
-        response_content = {
-            'status': 200,
-            'data': results,
-            'errors': error_sentences if error_sentences else None
-        }
         
-        return JSONResponse(content=response_content)
+        result = {
+            "success": new_questions,
+            "fail": error_sentences
+        }
+        return JSONResponse(status_code=200, content=res_ok(result))
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post('/sentence')
-async def generate_questions_from_sentence(request: ICreateQuestion, token: str = Depends(auth_scheme)):
+async def generate_questions_from_sentence(body: ICreateQuestion, request: Request):
     """Process user request
 
     Args:
@@ -177,25 +165,27 @@ async def generate_questions_from_sentence(request: ICreateQuestion, token: str 
 
     # Thực hiện xử lý yêu cầu và lưu kết quả vào Firestore
     # Không dùng background vì để nó chạy trong cùng 1 thread để chờ xử lí xong mới có results
-    results = []
+    question_repo = QuestionRepository()
+    user_id = request.state.user["uid"]
+    
+    new_questions = []
     error_sentences = []
-    user_data = fs.get_user_by_token(token)
-    model_input = ModelInput(**request.dict(), uid=user_data['uid'])
+    model_input = ModelInput(**body.dict(), uid=user_id)
     try:
-        results = generate_and_store_questions(model_input)
+        new_questions =  question_repo.generate_and_store_questions(model_input)
     except Exception as e:
         # Không để là model_input.context mà là request.context vì model_input.context là tiếng Anh
-        print(f"Lỗi khi xử lí câu: {request.context}. Lỗi: {e}")
-        error_sentences.append({'sentence': request.context, 'error': str(e)})
+        print(f"Lỗi khi xử lí câu: {body.context}. Lỗi: {e}")
+        error_sentences.append({'sentence': body.context, 'error': str(e)})
 
-    return {
-        'status': 200,
-        'data': results,
-        'errors': error_sentences if error_sentences else None
+    result = {
+        "success": new_questions,
+        "fail": error_sentences
     }
-
+    return JSONResponse(status_code=200, content=res_ok(result))
+        
 @router.post('/paragraph')
-async def generate_questions_from_paragraph(request: ICreateQuestion, token: str = Depends(auth_scheme)):
+async def generate_questions_from_paragraph(body: ICreateQuestion, request: Request):
     # API để chia đoạn văn thành các câu và tạo ra các câu hỏi cho từng câu.
     """Process user request by splitting the context into sentences 
     and sending requests to the `get-question` API for each sentence.
@@ -206,8 +196,12 @@ async def generate_questions_from_paragraph(request: ICreateQuestion, token: str
     Returns:
         dict: response with status
     """
+    question_repo = QuestionRepository()
+    user_id = request.state.user["uid"]
+    
+
     # Khởi tạo danh sách kết quả trước khi vòng lặp bắt đầu
-    results = []
+    new_questions = []
     error_sentences = []
 
     # Tạo biểu thức chính quy để tìm các dấu ngắt câu
@@ -219,80 +213,56 @@ async def generate_questions_from_paragraph(request: ICreateQuestion, token: str
     # Loại bỏ các câu rỗng
     sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
 
-    user_data = fs.get_user_by_token(token)
-    model_input = ModelInput(**request.dict(), uid=user_data['uid'])
+    model_input = ModelInput(**body.dict(), uid=user_id)
     # Gửi yêu cầu cho mỗi câu và thu thập kết quả
     for sentence in sentences:
         try:
-            result = generate_and_store_questions(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
-            results.append(result)
+            result = question_repo.generate_and_store_questions(ModelInput(context=sentence, uid=model_input.uid, name=model_input.name))
+            new_questions.append(result)
             # bg_task.add_task(process_request, ModelInput(context=sentence, uid=request.uid, name=request.name))
         except Exception as e:
             print(f"Lỗi khi xử lí câu: {sentence}. Lỗi: {e}")
             error_sentences.append({'sentence': sentence, 'error': str(e)})
             continue
 
-    # Trả về kết quả
-    response_content = {
-        'status': 200,
-        'data': results,
-        'errors': error_sentences if error_sentences else None
+    result = {
+        "success": new_questions,
+        "fail": error_sentences
     }
-    
-    return JSONResponse(content=response_content)
+    return JSONResponse(status_code=200, content=res_ok(result))
+     
 
 # index
 @router.get('/')
-async def index(keyword: str, token: str = Depends(auth_scheme)):
+async def index(keyword: str | None = Query(None)):
     try:
-        # Tham chiếu đến bộ sưu tập người dùng
-        users_collection = fs._db.collection('users')
-        
-        # Lấy tất cả các tài liệu người dùng
-        users = users_collection.stream()
+        question_repo = QuestionRepository()
+        choice_repo = ChoiceRepository()
 
+        list_question = await question_repo.get_many(keyword)
         matching_questions = []
-        
-        # Duyệt qua tất cả các tài liệu người dùng
-        for user in users:
-            user_id = user.id
-            user_data = user.to_dict()
-            
-            # Duyệt qua tất cả các bộ sưu tập câu hỏi của mỗi người dùng
-            question_collections = fs._db.collection('users').document(user_id).collections()
-            for collection in question_collections:
-                documents = collection.stream()
-                
-                # Lọc các câu hỏi dựa trên tiêu đề
-                for doc in documents:
-                    data = doc.to_dict()
-                    if keyword.lower() in data['question'].lower():  # Tìm kiếm không phân biệt chữ hoa chữ thường
-                        question_data = {
-                            'user_id': user_id,
-                            'collection_id': collection.id,
-                            'id': doc.id,
-                            'text': data['question'],
-                            'choices': [data['all_ans'][str(i)] for i in range(4)],  # Giả sử có 4 lựa chọn
-                            'correct_choice': data['crct_ans']
-                        }
-                        
-                        # Chỉ thêm trường 'rating' nếu có ít nhất một đánh giá
-                        if 'rating' in data and data['rating']:
-                            question_data['rating'] = data['rating']
-                        
-                        matching_questions.append(question_data)
 
-        return {
-            'status': 200,
-            'data': matching_questions
-        }
+        for q in list_question:
+            list_choice = await choice_repo.get_many_by_question_id(q.id)
+            list_choice_content = [c.choice_text for c in list_choice]
 
+            question_data = {
+                "id": q.id,
+                "user_id": q.user_id,
+                "text": q.question_text,
+                "choices": list_choice_content,
+                "correct_choice": q.correct_choice,
+                "tags": q.tags,
+            }
+
+            matching_questions.append(question_data)
+        return JSONResponse(status_code=200, content=res_ok(matching_questions))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # export question
 @router.post('/export/aiken')
-async def export_questions(request: IExportQuestion, token: str = Depends(auth_scheme)):
+async def export_questions(body: IExportQuestion, request: Request):
     """Export questions in Aiken format based on the provided topic.
 
     Args:
@@ -301,17 +271,12 @@ async def export_questions(request: IExportQuestion, token: str = Depends(auth_s
     Returns:
         FileResponse: response with the exported file
     """
-    try:
-        if not request.uid:
-            user_data = fs.get_user_by_token(token)
-            request.uid = user_data['uid']
-        questions = fs.get_questions_by_uid_and_topic(request.uid, request.name)  # Fetch questions from Firestore by uid and topic
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    question_repo = QuestionRepository()
+    list_question = await question_repo.get_list_question_by_user_and_topic
     
     aiken_format_content = ""
 
-    for question in questions:
+    for question in list_question:
         aiken_format_content += f"{question['text']}\n"
         for idx, answer in enumerate(question['choices']):
             aiken_format_content += f"{chr(65 + idx)}. {answer}\n"
@@ -330,7 +295,7 @@ async def export_questions(request: IExportQuestion, token: str = Depends(auth_s
     return FileResponse(file_path, filename=file_name)
 
 @router.post('/export/moodle')
-async def export_questions_moodle(request: IExportQuestion, token: str = Depends(auth_scheme)):
+async def export_questions_moodle(request: IExportQuestion):
     """Export questions in Moodle XML format based on the provided topic.
 
     Args:
@@ -339,15 +304,10 @@ async def export_questions_moodle(request: IExportQuestion, token: str = Depends
     Returns:
         FileResponse: response with the exported file
     """
-    try:
-        if not request.uid:
-            user_data = fs.get_user_by_token(token)
-            request.uid = user_data['uid']
-        questions = fs.get_questions_by_uid_and_topic(request.uid, request.name)  # Fetch questions from Firestore by uid and topic
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    question_repo = QuestionRepository()
+    list_question = await question_repo.get_list_question_by_user_and_topic
     
-    moodle_xml_content = create_moodle_xml(questions)
+    moodle_xml_content = create_moodle_xml(list_question)
 
     # Đường dẫn đến thư mục Downloads của người dùng
     downloads_path = str(Path.home() / "Downloads")
@@ -360,11 +320,11 @@ async def export_questions_moodle(request: IExportQuestion, token: str = Depends
     return FileResponse(file_path, filename=file_name)
 
 # update
-@router.put('/')
-async def update_question(topic: str, question_id: str, info: IUpdateQuestion, token: str = Depends(auth_scheme)):
+@router.put('/{question_id}')
+async def update_question(question_id: int, info: IUpdateQuestion, request: Request):
     try:
-        user_data = fs.get_user_by_token(token)
-        uid = user_data['uid']
+        question_repo = QuestionRepository()
+        user_id = request.state.user["uid"]
         new_info = {
             'all_ans': {
                 '0': info.all_ans.ans1,
@@ -376,101 +336,49 @@ async def update_question(topic: str, question_id: str, info: IUpdateQuestion, t
             'crct_ans': info.crct_ans,
             'question': info.question
         }
-        response = fs.update_question(uid, topic, question_id, new_info)
-        return JSONResponse(content=response)
+        await question_repo.update_question(user_id, question_id, new_info)
+        return JSONResponse(status_code=200, content=res_ok())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 # delete
-@router.delete('/')
-async def delete_question(topic: str, question_id_delete: str, token: str = Depends(auth_scheme)):
+@router.delete('/{question_id}')
+async def delete_question(question_id: int, request: Request):
     try:
-        # Lấy thông tin người dùng từ token
-        user_data = fs.get_user_by_token(token)
-        uid = user_data['uid']
-        
-        # Xóa câu hỏi của người dùng
-        success = fs.delete_question_by_uid_and_topic(uid, topic, question_id_delete)
-        
-        if success:
-            return JSONResponse(content={'status': 200, 'message': 'Question deleted successfully'})
-        else:
-            raise HTTPException(status_code=500, detail="Failed to delete question")
+        question_repo = QuestionRepository()
+        user_id = request.state.user["uid"]  
+        await question_repo.delete_question(user_id, question_id)
+        return JSONResponse(status_code=200, content=res_ok())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# other
-@ router.post('/check-duplicate')
-async def get_duplicate_questions_answers(request: IExportQuestion, token: str = Depends(auth_scheme)):
-    try:
-        if not request.uid:
-            user_data = fs.get_user_by_token(token)
-            request.uid = user_data['uid']
-        # Lấy danh sách các câu hỏi từ Firebase theo uid và chủ đề (name)
-        questions = fs.get_questions_by_uid_and_topic(uid=request.uid, topic=request.name)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# # other
+# @router.post('/check-duplicate')
+# async def get_duplicate_questions_answers(request: IExportQuestion, request: Request):
+#     try:
+#         if not request.uid:
+#             user_data = fs.get_user_by_token(token)
+#             request.uid = user_data['uid']
+#         # Lấy danh sách các câu hỏi từ Firebase theo uid và chủ đề (name)
+#         questions = fs.get_questions_by_uid_and_topic(uid=request.uid, topic=request.name)
+#     except ValueError as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
-    duplicate_questions = []
-    duplicate_answers = []
+#     duplicate_questions = []
+#     duplicate_answers = []
 
-    # Kiểm tra các câu hỏi trùng nhau
-    for idx1, q1 in enumerate(questions):
-        for idx2, q2 in enumerate(questions[idx1 + 1:], start=idx1 + 1):
-            if q1['text'] == q2['text']:
-                duplicate_questions.append({'question': q1['text'], 'position1': idx1, 'position2': idx2})
+#     # Kiểm tra các câu hỏi trùng nhau
+#     for idx1, q1 in enumerate(questions):
+#         for idx2, q2 in enumerate(questions[idx1 + 1:], start=idx1 + 1):
+#             if q1['text'] == q2['text']:
+#                 duplicate_questions.append({'question': q1['text'], 'position1': idx1, 'position2': idx2})
 
-            # Kiểm tra các đáp án trùng nhau
-            for ans1 in q1['choices']:
-                if ans1 in q2['choices']:
-                    duplicate_answers.append({'answer': ans1, 'position1': idx1, 'position2': idx2})
+#             # Kiểm tra các đáp án trùng nhau
+#             for ans1 in q1['choices']:
+#                 if ans1 in q2['choices']:
+#                     duplicate_answers.append({'answer': ans1, 'position1': idx1, 'position2': idx2})
 
-    return {
-        'duplicate_questions': duplicate_questions,
-        'duplicate_answers': duplicate_answers
-    }
-
-# create
-def generate_and_store_questions(request):
-    """Generate questions from user request and store results in Firestore.
-
-    Args:
-        request (ModelInput): request from flutter.
-
-    Returns:
-        dict: results saved to Firestore
-    """
-    request.context = vietnamese_to_english(request.context)
-    request.name = vietnamese_to_english(request.name)
-
-    fs.update_generated_status(request, True)
-    questions, crct_ans, all_ans = generate_questions_and_answers(request.context)
-    fs.update_generated_status(request, False)
-
-    results = fs.send_results_to_fs(request, questions, crct_ans, all_ans, request.context)
-    return results
-
-# other
-def generate_questions_and_answers(context: str):
-    """Generate questions and answers from given context.
-
-    Args:
-        context (str): input corpus used to generate question.
-
-    Returns:
-        tuple[list[str], list[str], list[list[str]]]:
-        questions, correct answers, and all answer choices.
-    """
-    summary, splitted_text = inference_handler.get_all_summary(
-        model=summarizer, context=context
-    )
-    filtered_kws = keyword_extractor.get_keywords(
-        original_list=splitted_text, summarized_list=summary
-    )
-
-    crct_ans, all_answers = false_ans_gen.get_output(filtered_kws=filtered_kws)
-    questions = inference_handler.get_all_questions(
-        model=question_gen, context=summary, answer=crct_ans
-    )
-
-    return questions, crct_ans, all_answers
+#     return {
+#         'duplicate_questions': duplicate_questions,
+#         'duplicate_answers': duplicate_answers
+#     }

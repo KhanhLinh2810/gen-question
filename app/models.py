@@ -4,6 +4,8 @@ from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
 
+from src.enums import UserRole
+
 class User(Base):
     __tablename__ = "users"
     
@@ -11,18 +13,22 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(100), unique=True, nullable=False, index=True)
     password = Column(String(100), nullable=False)
-    GeneratorWorking = Column(Boolean, default=False)
-    is_admin = Column(Boolean, default=False)
-    current_token = Column(String(255), nullable=True)
-    avatar = Column(String(255), nullable=True)
+    generator_working = Column(Boolean, default=False)
+    role = Column(Integer, default=UserRole.USER)
+    avatar_url = Column(Text, nullable=True)
     
-    questions = relationship("Question", back_populates="user")
+    questions = relationship(
+        "Question",
+        back_populates="user",
+        cascade="all, delete",
+        passive_deletes=True
+    )
 
 class Question(Base):
     __tablename__ = "questions"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     topic = Column(String(100), nullable=False)
     context = Column(Text, nullable=False)  # Nội dung câu hỏi
     question_text = Column(Text, nullable=False)
@@ -30,9 +36,9 @@ class Question(Base):
     tags = Column(Text, nullable=True)
     
     user = relationship("User", back_populates="questions")
-    choices = relationship("Choice", back_populates="question", cascade="all, delete")
-    comments = relationship("Comment", back_populates="question", cascade="all, delete")
-    ratings = relationship("Rating", back_populates="question", cascade="all, delete")
+    choices = relationship("Choice", back_populates="question", cascade="all, delete", passive_deletes=True)
+    comments = relationship("Comment", back_populates="question", cascade="all, delete", passive_deletes=True)
+    ratings = relationship("Rating", back_populates="question", cascade="all, delete", passive_deletes=True)
 
 class Choice(Base):
     __tablename__ = "choices"
@@ -57,10 +63,17 @@ class Comment(Base):
 class Rating(Base):
     __tablename__ = "ratings"
     
-    id = Column(Integer, primary_key=True, index=True)
-    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    question_id = Column(Integer, ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True)
     rating_value = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     question = relationship("Question", back_populates="ratings")
+
+# src/models/base.py
+from sqlalchemy import Column, DateTime, func
+
+class BaseModelMixin:
+    """Mixin để tự động thêm created_at và updated_at cho mọi model"""
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # Lưu thời điểm tạo
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # Lưu thời điểm cập nhật
